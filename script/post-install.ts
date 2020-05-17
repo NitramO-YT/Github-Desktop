@@ -118,4 +118,12 @@ findYarnVersion(path => {
       result.stderr
     )
   }
+
+  if (process.platform === 'linux') {
+    result = spawnSync('node', getYarnArgs([path, 'patch-package']), options)
+
+    if (result.status !== 0) {
+      process.exit(result.status || 1)
+    }
+  }
 })
