@@ -253,9 +253,21 @@ export class AddExistingRepository extends React.Component<
   }
 
   private onPathChanged = async (path: string) => {
-    if (this.state.path !== path) {
-      this.updatePath(path)
-    }
+    const type = await getRepositoryType(this.resolvedPath(path))
+
+    const isRepository = type.kind !== 'missing' && type.kind !== 'unsafe'
+    const isRepositoryUnsafe = type.kind === 'unsafe'
+    const isRepositoryBare = type.kind === 'bare'
+    const showNonGitRepositoryWarning = !isRepository || isRepositoryBare
+    const repositoryUnsafePath = type.kind === 'unsafe' ? type.path : undefined
+
+    this.setState({
+      path,
+      isRepositoryUnsafe,
+      isRepositoryBare,
+      showNonGitRepositoryWarning,
+      repositoryUnsafePath,
+    })
   }
 
   private showFilePicker = async () => {
