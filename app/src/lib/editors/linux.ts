@@ -1,4 +1,5 @@
-import { pathExists } from '../path-exists'
+import { pathExists } from '../helpers/linux'
+
 import { IFoundEditor } from './found-editor'
 
 /** Represents an external editor on Linux */
