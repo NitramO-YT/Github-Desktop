@@ -122,6 +122,7 @@ import {
   getPersistedThemeName,
   setPersistedTheme,
 } from '../../ui/lib/application-theme'
+import { TitleBarStyle } from '../../ui/lib/title-bar-style'
 import {
   getAppMenu,
   getCurrentWindowState,
@@ -134,6 +135,8 @@ import {
   quitApp,
   sendCancelQuittingSync,
   showOpenDialog,
+  saveTitleBarStyle,
+  getTitleBarStyle,
 } from '../../ui/main-process-proxy'
 import {
   API,
@@ -693,6 +696,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private selectedTheme = ApplicationTheme.System
   private currentTheme: ApplicableTheme = ApplicationTheme.Light
   private selectedTabSize = tabSizeDefault
+  private titleBarStyle: TitleBarStyle = 'native'
 
   private useWindowsOpenSSH: boolean = false
 
@@ -1322,6 +1326,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       selectedTheme: this.selectedTheme,
       currentTheme: this.currentTheme,
       selectedTabSize: this.selectedTabSize,
+      titleBarStyle: this.titleBarStyle,
       apiRepositories: this.apiRepositoriesStore.getState(),
       useWindowsOpenSSH: this.useWindowsOpenSSH,
       showCommitLengthWarning: this.showCommitLengthWarning,
@@ -2577,6 +2582,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.currentTheme = theme
       this.emitUpdate()
     })
+
+    this.titleBarStyle = await getTitleBarStyle()
 
     this.lastThankYou = getObject<ILastThankYou>(lastThankYouKey)
 
@@ -8768,6 +8775,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     return Promise.resolve()
+  }
+
+  /*
+   * Set the title bar style for the application
+   */
+  public _setTitleBarStyle(titleBarStyle: TitleBarStyle) {
+    this.titleBarStyle = titleBarStyle
+    return saveTitleBarStyle(titleBarStyle)
   }
 
   public async _resolveCurrentEditor() {
