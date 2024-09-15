@@ -106,7 +106,7 @@
     "webpack-merge": "^6.0.1",
     "xml2js": "^0.5.0",
     "xvfb-maybe": "^0.2.1",
-    "yaml": "^2.5.0"
+    "yaml": "^2.6.0"
   },
   "devDependencies": {
     "@electron/packager": "^18.4.4",
