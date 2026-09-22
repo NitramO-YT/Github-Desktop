@@ -351,7 +351,6 @@ export class Appearance extends React.Component<
       <DialogContent>
         {this.renderSelectedTheme()}
         {this.renderFormatting()}
-        {this.renderSelectedTabSize()}
         {this.renderTitleBarStyleDropdown()}
         {this.renderMiscellaneous()}
       </DialogContent>
