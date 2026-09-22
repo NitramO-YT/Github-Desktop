@@ -1,0 +1,127 @@
+name: 'Release channel'
+
+# The Stable and Beta links in the README never change, so each one is a
+# release of its own, tagged "stable" or "beta", holding a copy of the files of
+# the version it currently points at. This workflow moves one of those two
+# pointers onto a version that has already been published.
+#
+# The files are copied, never rebuilt, so that what a channel serves is exactly
+# what was tested under its version number.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description:
+          'Tag of the published version to point at, for instance
+          release-3.6.6-linux1'
+        required: true
+        type: string
+      channel:
+        description: 'Channel to move onto that version'
+        required: true
+        type: choice
+        options:
+          - stable
+          - beta
+      minimum_age_days:
+        description:
+          'Refuse a version published more recently than this, in days. Stable
+          only.'
+        required: false
+        default: '7'
+        type: string
+      force:
+        description:
+          'Promote to stable even if the version is younger than that'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  promote:
+    name: Point ${{ inputs.channel }} at ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_TAG: ${{ inputs.version }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      - name: Check the version can go to this channel
+        run: |
+          release="$(gh release view "$SOURCE_TAG" --json isDraft,isPrerelease,publishedAt)"
+
+          if [ "$(echo "$release" | jq -r '.isDraft')" = "true" ]; then
+            echo "$SOURCE_TAG is still a draft. Publish it first." >&2
+            exit 1
+          fi
+
+          case "$CHANNEL:$SOURCE_TAG" in
+            stable:*beta*)
+              echo "$SOURCE_TAG is a beta, so it cannot become the stable version." >&2
+              exit 1
+              ;;
+            beta:*beta*) ;;
+            beta:*)
+              echo "$SOURCE_TAG is not a beta, so it does not belong to the beta channel." >&2
+              exit 1
+              ;;
+          esac
+
+          published_at="$(echo "$release" | jq -r '.publishedAt')"
+          echo "PUBLISHED_AT=$published_at" >> "$GITHUB_ENV"
+
+      # A version becomes stable once it has been in use for a while, so the
+      # delay is checked here rather than left to memory. Beta has no such
+      # delay: it exists to carry what is new.
+      - name: Check the version is old enough for stable
+        if: inputs.channel == 'stable' && !inputs.force
+        run: |
+          age_days=$(( ( $(date +%s) - $(date -d "$PUBLISHED_AT" +%s) ) / 86400 ))
+          minimum="${{ inputs.minimum_age_days }}"
+
+          if [ "$age_days" -lt "$minimum" ]; then
+            echo "$SOURCE_TAG was published $age_days day(s) ago, and stable asks for $minimum." >&2
+            echo "Run this workflow again with force if you mean to promote it anyway." >&2
+            exit 1
+          fi
+
+          echo "$SOURCE_TAG was published $age_days day(s) ago."
+
+      - name: Copy the files of that version
+        run: |
+          mkdir assets
+          gh release download "$SOURCE_TAG" --dir assets
+          ls -l assets
+
+      - name: Move the channel onto that version
+        run: |
+          commit="$(gh api "repos/$GH_REPO/git/ref/tags/$SOURCE_TAG" --jq '.object.sha')"
+          version="${SOURCE_TAG#release-}"
+
+          if [ "$CHANNEL" = "stable" ]; then
+            title="Stable: GitHub Desktop for Linux $version"
+            notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG), promoted once it had been in use without a known issue."
+            extra=()
+          else
+            title="Beta: GitHub Desktop for Linux $version"
+            notes="This release always holds the most recent beta, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG), built from an official beta."
+            extra=(--prerelease)
+          fi
+
+          # The pointer is recreated rather than edited, so that its files are
+          # exactly those of the version it points at, with nothing left over
+          # from the version before.
+          gh release delete "$CHANNEL" --yes --cleanup-tag || true
+
+          gh release create "$CHANNEL" assets/* \
+            --target "$commit" \
+            --title "$title" \
+            --notes "$notes" \
+            --latest=false \
+            "${extra[@]}"
+
+          echo "The $CHANNEL channel now points at $version." >> "$GITHUB_STEP_SUMMARY"
