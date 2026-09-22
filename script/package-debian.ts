@@ -57,7 +57,7 @@ const options: DebianOptions = {
     'This is the unofficial port of GitHub Desktop for Linux distributions',
   section: 'GNOME;GTK;Development',
   priority: 'extra',
-  homepage: 'https://github.com/shiftkey/desktop',
+  homepage: 'https://github.com/NitramO-YT/Github-Desktop',
   depends: [
     // Desktop-specific dependencies
     'libcurl3 | libcurl4',
@@ -85,7 +85,7 @@ const options: DebianOptions = {
     // see https://github.com/shiftkey/desktop/issues/72 for more details
     'x-scheme-handler/x-github-desktop-dev-auth',
   ],
-  maintainer: 'Brendan Forster <github@brendanforster.com>',
+  maintainer: 'NitramO <openiera.dev@gmail.com>',
 }
 
 export async function packageDebian(): Promise<string> {
