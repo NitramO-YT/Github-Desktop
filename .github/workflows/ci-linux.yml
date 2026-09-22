@@ -3,148 +3,143 @@ name: 'CI / Linux'
 on:
   push:
     branches:
-      - development
       - linux
+      - linux-beta
       - 'linux-release-*'
     tags:
-      - 'release-*.*.*-linux*'
-      - 'release-*.*.*-test*'
+      - 'release-*-linux*'
   pull_request:
     branches:
       - linux
-      - linux-vnext
+      - linux-beta
       - 'linux-release-*'
+  workflow_dispatch:
 
 jobs:
-  arm64:
-    name: Ubuntu arm64
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
-          submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-arm64-packaging@9be09c4b945873e6509baaf690d457aae08cf901
-      - name: Upload output artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-arm64-artifacts
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.sha256
-          retention-days: 5
-          if-no-files-found: error
-  arm:
-    name: Ubuntu arm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
-          submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-arm-packaging@dd75ebc57f69fdb9319ab2b0fe11b253bb1ff2a4
-      - name: Upload output artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-arm-artifacts
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.sha256
-          retention-days: 5
-          if-no-files-found: error
-  amd64:
+  build:
     name: Ubuntu x64
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      # A build made from a beta tag, or from the branch that follows the
+      # upstream betas, enables the same features as the official beta channel.
+      RELEASE_CHANNEL:
+        ${{ contains(github.ref_name, 'beta') && 'beta' || 'production' }}
+      npm_config_arch: x64
+      TARGET_ARCH: x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
           submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-amd64-packaging@ea7b7a6a940a6b907b160b946439c5c7a516f9f1
-      - name: Upload output artifacts
+
+      # A tag names the version it publishes, so a mismatch would ship packages
+      # whose file names disagree with the release they are attached to.
+      - name: Check the version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#release-}"
+          version="$(node -p "require('./app/package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "The tag says $tag while app/package.json says $version." >&2
+            exit 1
+          fi
+
+      - name: Read the Node version this project asks for
+        id: node
+        run: echo "version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-ci-environment
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          arch: x64
+
+      # rpmbuild builds the .rpm and is not part of the runner image.
+      - name: Install the packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends rpm
+
+      - name: Build production app
+        run: yarn build:prod
+
+      - name: Prepare testing environment
+        run: yarn test:setup
+
+      - name: Run unit tests
+        run: yarn test:unit
+
+      - name: Run script tests
+        run: yarn test:script
+
+      - name: Package application
+        run: yarn package
+
+      - name: Generate the release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          node -r ts-node/register script/generate-release-notes.ts \
+            "${{ github.workspace }}/dist" "${GITHUB_REF_NAME#release-}"
+
+      - name: Upload the packages
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-amd64-artifacts
+          name: linux-x64-packages
           path: |
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
             dist/*.sha256
+          retention-days: 5
+          if-no-files-found: error
+
+      - name: Upload the release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: script/release_notes.txt
           retention-days: 5
           if-no-files-found: error
 
   publish:
-    name: Create GitHub release
-    needs: [arm64, arm, amd64]
-    runs-on: ubuntu-latest
+    name: Create the GitHub release
+    needs: build
     if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js 20.17.0
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.17.0
-          cache: yarn
-
-      - name: Download all artifacts
+      - name: Download the packages
         uses: actions/download-artifact@v4
         with:
-          path: './artifacts'
+          name: linux-x64-packages
+          path: packages
 
-      - name: Display structure of downloaded files
-        run: ls -R
-        working-directory: './artifacts'
-
-      - name: Get tag name without prefix
-        run: |
-          RELEASE_TAG=${GITHUB_REF/refs\/tags\//}
-          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
-          tagNameWithoutPrefix="${RELEASE_TAG:8}"
-          echo "RELEASE_TAG_WITHOUT_PREFIX=${tagNameWithoutPrefix}" >> $GITHUB_ENV
-
-      # TODO: generate release notes
-      #    - pull in default if version matches X.Y.Z-linux1
-      #    - otherwise stub template
-
-      - name: Generate release notes
-        run: |
-          node -v
-          yarn
-          node -r ts-node/register script/generate-release-notes.ts "${{ github.workspace }}/artifacts" "${{ env.RELEASE_TAG_WITHOUT_PREFIX }}"
-          RELEASE_NOTES_FILE=script/release_notes.txt
-          if [[ ! -f "$RELEASE_NOTES_FILE" ]]; then
-              echo "$RELEASE_NOTES_FILE does not exist. Something might have gone wrong while generating the release notes."
-              exit 1
-          fi
-          echo "Release notes:"
-          echo "---"
-          cat ${RELEASE_NOTES_FILE}
-          echo "---"
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Download the release notes
+        uses: actions/download-artifact@v4
         with:
-          name: GitHub Desktop for Linux ${{ env.RELEASE_TAG_WITHOUT_PREFIX }}
-          body_path: script/release_notes.txt
-          files: |
-            artifacts/**/*.AppImage
-            artifacts/**/*.deb
-            artifacts/**/*.rpm
-            artifacts/**/*.sha256
-          draft: true
-          fail_on_unmatched_files: true
+          name: release-notes
+          path: notes
+
+      # The release is created as a draft: the packages are attached and the
+      # release notes are filled in, but nothing is public until a human reads
+      # them over and presses Publish. A beta is a pre-release, so that the
+      # "Latest" badge, and the link that follows it, keep pointing at the most
+      # recent stable-numbered build.
+      - name: Create the release as a draft
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#release-}"
+          flags=(--draft --title "GitHub Desktop for Linux $version")
+          flags+=(--notes-file notes/release_notes.txt)
+
+          case "$version" in
+            *beta*) flags+=(--prerelease --latest=false) ;;
+            *) flags+=(--latest) ;;
+          esac
+
+          gh release create "$GITHUB_REF_NAME" packages/* "${flags[@]}"

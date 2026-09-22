@@ -14,8 +14,7 @@ type ReleaseNoteEntry = {
   contributor?: string
 }
 
-// 3 architectures * 3 package formats * 2 files (package + checksum file)
-const SUCCESSFUL_RELEASE_FILE_COUNT = 3 * 3 * 2
+const PACKAGE_EXTENSIONS = ['.deb', '.rpm', '.AppImage']
 
 const Glob = glob.GlobSync
 
@@ -43,16 +42,37 @@ const files = new Glob(artifactsDir + '/**/*', { nodir: true })
 
 const matches = files.found as Array<string>
 
-const fileCount = matches.length
+// A release ships one checksum file per package, whatever the number of
+// architectures and formats a given release is built for.
+const packages = matches.filter(f =>
+  PACKAGE_EXTENSIONS.some(extension => f.endsWith(extension))
+)
 
-if (SUCCESSFUL_RELEASE_FILE_COUNT !== fileCount) {
+if (packages.length === 0) {
   console.error(
-    `🔴 Artifacts folder has ${fileCount} assets, expecting ${SUCCESSFUL_RELEASE_FILE_COUNT}. Please check the GH Actions artifacts to see which are missing.`
+    `🔴 Artifacts folder has no package at all, looked for ${PACKAGE_EXTENSIONS.join(
+      ', '
+    )}. Please check the GH Actions artifacts. Aborting...`
   )
   process.exit(1)
 }
 
-console.log(`Found ${fileCount} files in artifacts directory`)
+const packagesWithoutChecksum = packages.filter(
+  f => !matches.includes(`${f}.sha256`)
+)
+
+if (packagesWithoutChecksum.length > 0) {
+  console.error(
+    `🔴 These packages have no checksum file next to them: ${packagesWithoutChecksum.join(
+      ', '
+    )}. Aborting...`
+  )
+  process.exit(1)
+}
+
+console.log(
+  `Found ${packages.length} packages, each with its checksum, in artifacts directory`
+)
 
 const releaseNotesByGroup = getReleaseGroups(releaseTagWithoutPrefix)
 
