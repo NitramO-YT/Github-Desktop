@@ -18,7 +18,11 @@ on:
 jobs:
   build:
     name: Ubuntu x64
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: the glibc of the machine that builds
+    # sets the minimum glibc the packages ask of whoever installs them, so it
+    # is a decision of this project rather than one to inherit from a label
+    # that moves. 22.04 keeps Ubuntu 22.04 and Debian 12 users in.
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -55,11 +59,13 @@ jobs:
           node-version: ${{ steps.node.outputs.version }}
           arch: x64
 
-      # rpmbuild builds the .rpm and is not part of the runner image.
-      - name: Install the packaging tools
+      # rpmbuild builds the .rpm, and libsecret is what the keychain module
+      # loads at runtime. Neither is part of the runner image, and a missing
+      # libsecret takes down every test that reaches an application store.
+      - name: Install the packaging and runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends rpm
+          sudo apt-get install --yes --no-install-recommends rpm libsecret-1-0
 
       - name: Build production app
         run: yarn build:prod
