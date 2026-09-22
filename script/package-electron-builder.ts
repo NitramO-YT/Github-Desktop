@@ -42,6 +42,13 @@ export async function packageElectronBuilder(): Promise<Array<string>> {
     getArchitecture(),
     '--config',
     configPath,
+    // Left to itself, electron-builder notices it runs on CI and offers to
+    // upload what it just built to any draft release it finds, which is not
+    // how this project publishes: the workflow attaches the packages itself,
+    // once the tests have passed. Saying never also removes the token error
+    // it prints while looking for credentials it has no use for here.
+    '--publish',
+    'never',
   ]
 
   const { error } = cp.spawnSync(electronBuilder, args, { stdio: 'inherit' })
