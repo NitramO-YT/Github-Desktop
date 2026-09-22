@@ -172,11 +172,19 @@ function packageApp() {
   }
 
   const iconPath = getIconDirectory()
-  const assetsCarPath = join(iconPath, 'Assets.car')
-  assert(
-    existsSync(assetsCarPath),
-    `Unable to find Assets.car at ${assetsCarPath}`
-  )
+
+  // Assets.car is the macOS icon catalog. Nothing reads it on Linux, where it
+  // would only add weight to every package.
+  const extraResource: Array<string> = []
+
+  if (process.platform !== 'linux') {
+    const assetsCarPath = join(iconPath, 'Assets.car')
+    assert(
+      existsSync(assetsCarPath),
+      `Unable to find Assets.car at ${assetsCarPath}`
+    )
+    extraResource.push(assetsCarPath)
+  }
 
   return packager({
     name: getExecutableName(),
@@ -190,7 +198,7 @@ function packageApp() {
       iconPath,
       process.platform === 'darwin' ? 'icon-logo-legacy.icns' : 'icon-logo'
     ),
-    extraResource: [assetsCarPath],
+    extraResource,
     dir: outRoot,
     overwrite: true,
     tmpdir: false,

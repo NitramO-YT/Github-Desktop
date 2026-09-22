@@ -205,8 +205,10 @@ async function generateChecksums(files: Array<string>) {
     const fileName = path.basename(fullPath)
     checksumsText += `${checksum} - ${fileName}\n`
 
+    // The sha256sum format, so that `sha256sum -c <file>.sha256` verifies the
+    // download next to it.
     const checksumFilePath = `${fullPath}.sha256`
-    await writeFile(checksumFilePath, checksum)
+    await writeFile(checksumFilePath, `${checksum}  ${fileName}\n`)
   }
 
   const checksumFile = path.join(distRoot, 'checksums.txt')
