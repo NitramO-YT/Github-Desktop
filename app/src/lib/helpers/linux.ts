@@ -82,24 +82,23 @@ export function spawn(
  * Spawn a given editor in a way that works for Flatpak-based usage
  *
  * @param path path to editor, relative to the root of the filesystem
- * @param workingDirectory working directory to open initially in editor
+ * @param args arguments to provide to the editor, such as the path to open
  * @param options additional options to provide to spawn function
  */
 export function spawnEditor(
   path: string,
-  workingDirectory: string,
+  args: ReadonlyArray<string>,
   options: SpawnOptions
 ): ChildProcess {
   if (isFlatpakBuild()) {
     const actualPath = formatPathForFlatpak(path)
-    const EscapedworkingDirectory =
-      formatWorkingDirectoryForFlatpak(workingDirectory)
+    const escapedArgs = args.map(formatWorkingDirectoryForFlatpak)
     return nodeSpawn(
       'flatpak-spawn',
-      ['--host', actualPath, EscapedworkingDirectory],
+      ['--host', actualPath, ...escapedArgs],
       options
     )
   } else {
-    return nodeSpawn(path, [workingDirectory], options)
+    return nodeSpawn(path, args, options)
   }
 }
