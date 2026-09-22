@@ -18,7 +18,11 @@ on:
 jobs:
   build:
     name: Ubuntu x64
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: the glibc of the machine that builds
+    # sets the minimum glibc the packages ask of whoever installs them, so it
+    # is a decision of this project rather than one to inherit from a label
+    # that moves. 22.04 keeps Ubuntu 22.04 and Debian 12 users in.
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -46,6 +50,15 @@ jobs:
             exit 1
           fi
 
+      # These come before installing the dependencies, since the keychain module
+      # needs libsecret to load and its headers to build when no prebuilt binary
+      # matches the runner. rpmbuild is what builds the .rpm further down.
+      - name: Install the system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            rpm libsecret-1-0 libsecret-1-dev
+
       - name: Read the Node version this project asks for
         id: node
         run: echo "version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
@@ -54,12 +67,6 @@ jobs:
         with:
           node-version: ${{ steps.node.outputs.version }}
           arch: x64
-
-      # rpmbuild builds the .rpm and is not part of the runner image.
-      - name: Install the packaging tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends rpm
 
       - name: Build production app
         run: yarn build:prod
