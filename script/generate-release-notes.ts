@@ -1,7 +1,7 @@
 /* eslint-disable no-sync */
 
 const glob = require('glob')
-const { dirname, join } = require('path')
+const { basename, dirname, join } = require('path')
 const fs = require('fs')
 
 type ReleaseNotesGroupType = 'new' | 'added' | 'fixed' | 'improved' | 'removed'
@@ -15,6 +15,11 @@ type ReleaseNoteEntry = {
 }
 
 const PACKAGE_EXTENSIONS = ['.deb', '.rpm', '.AppImage']
+
+// A tag reads X.Y.Z-linuxN: the version of the upstream release this build
+// comes from, then the revision of the Linux build made from it. Declared up
+// here because the body of this script runs before the functions below it.
+const LINUX_REVISION = /-(linux|test)\d+$/
 
 const Glob = glob.GlobSync
 
@@ -76,7 +81,11 @@ console.log(
 
 const releaseNotesByGroup = getReleaseGroups(releaseTagWithoutPrefix)
 
-const draftReleaseNotes = generateDraftReleaseNotes(releaseNotesByGroup)
+const draftReleaseNotes = generateDraftReleaseNotes(
+  releaseNotesByGroup,
+  releaseTagWithoutPrefix,
+  packages
+)
 const releaseNotesPath = join(__dirname, 'release_notes.txt')
 
 fs.writeFileSync(releaseNotesPath, draftReleaseNotes, { encoding: 'utf8' })
@@ -121,7 +130,7 @@ function isInitialTag(tag: string): boolean {
 }
 
 function getVersionWithoutSuffix(tag: string): string {
-  return tag.replace('-linux1', '').replace('-test1', '')
+  return tag.replace(LINUX_REVISION, '')
 }
 
 function getReleaseGroups(version: string): ReleaseNotesGroups {
@@ -225,26 +234,74 @@ function renderSection(
     return ''
   }
 
+  // A section kept although it is empty is a reminder to whoever reviews the
+  // draft, so it says what to do with it rather than leaving a bare TODO that
+  // could be published as is.
   const itemsText =
-    items.length === 0 ? 'TODO' : items.map(formatReleaseNote).join('\n')
+    items.length === 0
+      ? 'TODO: list what this build changes here, or remove this section.'
+      : items.map(formatReleaseNote).join('\n')
 
-  return `
-## ${name}
+  return `## ${name}\n\n${itemsText}`
+}
 
-${itemsText}
-  `
+/**
+ * Opens the release notes on what this build is, since whoever lands here
+ * arrives from a search engine as often as from the repository, and nothing
+ * else on the page says that these packages are not published by GitHub.
+ */
+function renderHeader(tag: string): string {
+  const upstreamVersion = getVersionWithoutSuffix(tag)
+
+  return `GitHub Desktop ${upstreamVersion} for Linux, build \`${tag}\`.
+
+These packages are built from the code of the official ${upstreamVersion} release, with the changes this fork adds for Linux. They are not published by GitHub, and the sections below list what the upstream release changed: <https://github.com/desktop/desktop/releases/tag/release-${upstreamVersion}>.
+
+Which package to pick, what each one needs and the problems known to this build are in the README: <https://github.com/NitramO-YT/Github-Desktop#readme>.`
+}
+
+/**
+ * Lists the packages with their checksums. The checksum files are attached to
+ * the release as well, so this table is what lets someone compare a download
+ * against the release page itself rather than against a file downloaded from
+ * the same place.
+ */
+function renderPackages(packagePaths: Array<string>): string {
+  const rows = [...packagePaths].sort().map(packagePath => {
+    const checksum = fs
+      .readFileSync(`${packagePath}.sha256`, 'utf8')
+      .trim()
+      .split(/\s+/)[0]
+
+    return `| \`${basename(packagePath)}\` | \`${checksum}\` |`
+  })
+
+  return `## Downloads
+
+| File | SHA-256 |
+| --- | --- |
+${rows.join('\n')}
+
+To check a download, put its \`.sha256\` file next to it and run \`sha256sum -c <file>.sha256\`.`
 }
 
 /**
  * Takes the release notes entries and the SHA entries, then merges them into the full draft release notes ✨
  */
 function generateDraftReleaseNotes(
-  releaseNotesGroups: ReleaseNotesGroups
+  releaseNotesGroups: ReleaseNotesGroups,
+  tag: string,
+  packagePaths: Array<string>
 ): string {
-  return `
-${renderSection('New', releaseNotesGroups.new)}
-${renderSection('Added', releaseNotesGroups.added)}
-${renderSection('Fixed', releaseNotesGroups.fixed, false)}
-${renderSection('Improved', releaseNotesGroups.improved, false)}
-${renderSection('Removed', releaseNotesGroups.removed)}`
+  const sections = [
+    renderHeader(tag),
+    renderPackages(packagePaths),
+    renderSection('New', releaseNotesGroups.new),
+    renderSection('Added', releaseNotesGroups.added),
+    renderSection('Fixed', releaseNotesGroups.fixed, false),
+    renderSection('Improved', releaseNotesGroups.improved, false),
+    renderSection('Removed', releaseNotesGroups.removed),
+  ]
+
+  return `${sections.filter(section => section !== '').join('\n\n')}\n`
 }
