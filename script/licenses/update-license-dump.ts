@@ -73,10 +73,12 @@ export async function updateLicenseDump(
   const licenseText = await readFile(licenseSource, { encoding: 'utf-8' })
   const appVersion = getVersion()
 
+  // The version carries this fork's own suffix, and the tag that goes with it
+  // only exists here, so the source link points at this repository.
   summary[`desktop@${appVersion}`] = {
-    repository: 'https://github.com/desktop/desktop',
+    repository: 'https://github.com/NitramO-YT/Github-Desktop',
     license: 'MIT',
-    source: `https://github.com/desktop/desktop/blob/release-${appVersion}/LICENSE`,
+    source: `https://github.com/NitramO-YT/Github-Desktop/blob/release-${appVersion}/LICENSE`,
     sourceText: licenseText,
   }
 
