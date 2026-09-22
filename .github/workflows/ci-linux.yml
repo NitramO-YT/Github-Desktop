@@ -50,6 +50,15 @@ jobs:
             exit 1
           fi
 
+      # These come before installing the dependencies, since the keychain module
+      # needs libsecret to load and its headers to build when no prebuilt binary
+      # matches the runner. rpmbuild is what builds the .rpm further down.
+      - name: Install the system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            rpm libsecret-1-0 libsecret-1-dev
+
       - name: Read the Node version this project asks for
         id: node
         run: echo "version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
@@ -58,14 +67,6 @@ jobs:
         with:
           node-version: ${{ steps.node.outputs.version }}
           arch: x64
-
-      # rpmbuild builds the .rpm, and libsecret is what the keychain module
-      # loads at runtime. Neither is part of the runner image, and a missing
-      # libsecret takes down every test that reaches an application store.
-      - name: Install the packaging and runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends rpm libsecret-1-0
 
       - name: Build production app
         run: yarn build:prod
