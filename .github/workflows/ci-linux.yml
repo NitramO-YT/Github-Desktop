@@ -33,6 +33,16 @@ jobs:
         ${{ contains(github.ref_name, 'beta') && 'beta' || 'production' }}
       npm_config_arch: x64
       TARGET_ARCH: x64
+      # Three native modules, printenvz, process-proxy and the trampoline,
+      # compile with -Werror while redefining _FORTIFY_SOURCE, a macro the
+      # compiler of Ubuntu 22.04 already defines on its own. The redefinition
+      # warning then stops the install. Only a plain -Wno-error covers it: the
+      # warning has no option of its own, so -Wno-error=cpp and
+      # -Wno-builtin-macro-redefined both leave it an error. Flags coming from
+      # the environment are placed after those of each binding.gyp, which is
+      # what gives this one the last word.
+      CFLAGS: -Wno-error
+      CXXFLAGS: -Wno-error
     steps:
       - uses: actions/checkout@v7
         with:
