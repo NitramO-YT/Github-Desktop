@@ -46,6 +46,7 @@ type DebianOptions = {
   mimeType?: Array<string>
   maintainer?: string
   depends?: Array<string>
+  suggests?: Array<string>
 }
 
 const options: DebianOptions = {
@@ -62,8 +63,12 @@ const options: DebianOptions = {
     // Desktop-specific dependencies
     'libcurl3 | libcurl4',
     'libsecret-1-0',
-    'gnome-keyring',
   ],
+  // Credentials are stored through the Secret Service API, which needs a
+  // provider running in the session. Desktop environments ship one of their
+  // own, GNOME Keyring on GNOME and KWallet on KDE Plasma among them, so this
+  // is a fallback for sessions that have none rather than a requirement.
+  suggests: ['gnome-keyring'],
   icon: {
     '32x32': 'app/static/linux/logos/32x32.png',
     '64x64': 'app/static/linux/logos/64x64.png',

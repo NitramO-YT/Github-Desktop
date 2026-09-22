@@ -58,7 +58,9 @@ const options: RedhatOptions = {
     '(libcurl or libcurl4)',
     // keytar dependencies
     'libsecret',
-    'gnome-keyring',
+    // GNOME Keyring is deliberately absent: credentials are stored through the
+    // Secret Service API, and desktop environments ship a provider of their
+    // own, GNOME Keyring on GNOME and KWallet on KDE Plasma among them.
   ],
   icon: {
     '32x32': 'app/static/linux/logos/32x32.png',
