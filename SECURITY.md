@@ -1,11 +1,36 @@
-GitHub takes the security of our software products and services seriously, including the open source code repositories managed through our GitHub organizations, such as [GitHub](https://github.com/GitHub).
+# Security policy
 
-If you believe you have found a security vulnerability in this GitHub-owned open source repository, you can report it to us in one of two ways.
+This repository publishes a Linux build of GitHub Desktop. It is not run by
+GitHub, so a vulnerability found here does not reach the same people as one
+found in the official product, and reporting it in the wrong place means it
+stays unfixed.
 
-If the vulnerability you have found is *not* [in scope for the GitHub Bug Bounty Program](https://bounty.github.com/#scope) or if you do not wish to be considered for a bounty reward, please report the issue to us directly using [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability).
+## What belongs where
 
-If the vulnerability you have found is [in scope for the GitHub Bug Bounty Program](https://bounty.github.com/#scope) and you would like for your finding to be considered for a bounty reward, please submit the vulnerability to us through [HackerOne](https://hackerone.com/github) in order to be eligible to receive a bounty award.
+**In the packaging or the Linux-specific code of this fork**, report it to this
+repository through
+[private vulnerability reporting](https://github.com/NitramO-YT/Github-Desktop/security/advisories/new),
+which keeps the report hidden until a fix is published. Examples: how the
+packages are built or signed, the desktop entry and the protocol handlers it
+registers, the way credentials are stored through the Secret Service, or
+anything else this fork adds on top of the upstream code.
 
-**Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
+**In GitHub Desktop itself**, meaning code that behaves the same on Windows and
+macOS, report it to GitHub rather than here, following
+[their security policy](https://github.com/desktop/desktop/security/policy).
+They own that code, and a fix there reaches every user of the application
+instead of the few who run these packages. Telling us as well is welcome, so
+that a build carrying the fix can be published quickly.
 
-Thanks for helping make GitHub safe for everyone.
+If you are unsure which of the two it is, report it here privately and we will
+forward it.
+
+**Please do not report security vulnerabilities through public issues,
+discussions or pull requests.** A public report tells everyone how to exploit
+the problem before anyone can install a fix.
+
+## What to expect
+
+This is a small project maintained on personal time, so an answer may take a
+few days. You will be told what was understood of the report, whether it is
+considered a vulnerability, and when a fixed build is published.

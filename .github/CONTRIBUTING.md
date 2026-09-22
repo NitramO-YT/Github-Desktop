@@ -1,5 +1,26 @@
 # Contributing to GitHub Desktop
 
+> **This fork only carries the Linux build.** The guidelines below come from the
+> upstream project and describe how GitHub develops the application itself. They
+> still apply to the code, since this fork follows upstream closely, but the
+> teams, the review process and the roadmap they mention are theirs, not ours.
+>
+> What a contribution here can change: packaging of the `.deb`, `.rpm` and
+> AppImage, desktop integration such as the desktop entry, icons and protocol
+> handlers, detection of terminals, editors and shells, dependencies and
+> supported distributions, and the workflows that build and publish the
+> releases.
+>
+> What it cannot change: the application itself. A pull request touching shared
+> code will be sent to [desktop/desktop](https://github.com/desktop/desktop)
+> instead, because a fix that lands upstream reaches every user and comes back
+> here with the next release, whereas a fix kept in this fork has to be merged
+> again by hand at every release, forever.
+>
+> Changes are kept as small and as isolated as possible for that reason: the
+> Linux-specific code lives in its own files, and shared files carry no more
+> than the hooks they need.
+
 :+1: :tada: :sparkling_heart: Thanks for your interest! :sparkling_heart: :tada: :+1:
 
 The following is a set of guidelines for contributing to GitHub Desktop and its

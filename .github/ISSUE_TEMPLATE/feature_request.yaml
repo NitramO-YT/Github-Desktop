@@ -1,10 +1,14 @@
 name: ⭐ Feature Request
-description: Submit a feature request
+description: Submit a feature request about this Linux build
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for submitting a feature request! This issue tracker is for [GitHub Desktop](https://desktop.github.com). Please search the issue tracker to see if there is an existing issue for the feature you are requesting. If you have a feature request for github.com please visit the [GitHub public feedback discussions repository](https://github.com/github/feedback/discussions).
+        Thanks for submitting a feature request! This tracker is for the **Linux build** of GitHub Desktop published from this fork, so it is the right place for what packaging and desktop integration decide: distribution formats, desktop entry and protocol handlers, terminal and editor detection, dependencies, architectures.
+
+        Features of the application itself are decided upstream, at [desktop/desktop](https://github.com/desktop/desktop/issues): this fork follows their releases and does not change what the application does. For github.com, the [GitHub public feedback discussions repository](https://github.com/github/feedback/discussions) is the place.
+
+        Please search this tracker first to see if there is an existing issue for the feature you are requesting.
   - type: textarea
     id: the-feature-request
     attributes:
