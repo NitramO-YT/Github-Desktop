@@ -28,10 +28,6 @@ export function convertToFlatpakPath(path: string) {
   return join('/var/run/host', path)
 }
 
-export function formatWorkingDirectoryForFlatpak(path: string): string {
-  return path.replace(/(\s)/, ' ')
-}
-
 export function formatPathForFlatpak(path: string): string {
   if (path.startsWith('/var/lib/flatpak/app')) {
     return path.replace('/var/lib/flatpak/app/', '')
@@ -91,13 +87,10 @@ export function spawnEditor(
   options: SpawnOptions
 ): ChildProcess {
   if (isFlatpakBuild()) {
+    // flatpak-spawn passes each argument on as its own entry, without a shell
+    // in between, so nothing here needs escaping.
     const actualPath = formatPathForFlatpak(path)
-    const escapedArgs = args.map(formatWorkingDirectoryForFlatpak)
-    return nodeSpawn(
-      'flatpak-spawn',
-      ['--host', actualPath, ...escapedArgs],
-      options
-    )
+    return nodeSpawn('flatpak-spawn', ['--host', actualPath, ...args], options)
   } else {
     return nodeSpawn(path, args, options)
   }
