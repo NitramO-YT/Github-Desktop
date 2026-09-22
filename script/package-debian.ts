@@ -85,7 +85,7 @@ const options: DebianOptions = {
     // see https://github.com/shiftkey/desktop/issues/72 for more details
     'x-scheme-handler/x-github-desktop-dev-auth',
   ],
-  maintainer: 'NitramO <openiera.dev@gmail.com>',
+  maintainer: 'NitramO <61696199+NitramO-YT@users.noreply.github.com>',
 }
 
 export async function packageDebian(): Promise<string> {
