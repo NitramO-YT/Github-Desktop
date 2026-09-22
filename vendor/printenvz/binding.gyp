@@ -12,6 +12,7 @@
           '-Werror',
           '-fPIC',
           '-pie',
+          '-U_FORTIFY_SOURCE',
           '-D_FORTIFY_SOURCE=1',
           '-fstack-protector-strong',
           '-Werror=format-security',
