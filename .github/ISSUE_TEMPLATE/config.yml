@@ -1,0 +1,16 @@
+# Shown above the templates when someone opens a new issue. The links send
+# people whose problem is not ours to where it can actually be fixed, which
+# matters for a fork: this tracker cannot change the application itself.
+blank_issues_enabled: true
+contact_links:
+  - name: 🐛 A bug in GitHub Desktop itself
+    url: https://github.com/desktop/desktop/issues
+    about:
+      Anything that also happens on Windows or macOS belongs upstream, where the
+      application is developed. This fork only carries the Linux build.
+  - name: ⭐ A feature for GitHub Desktop
+    url: https://github.com/desktop/desktop/issues
+    about:
+      Features of the application are decided upstream. Open an issue here only
+      for what is specific to Linux, such as packaging, desktop integration or
+      distribution support.

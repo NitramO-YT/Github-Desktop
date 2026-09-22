@@ -1,14 +1,20 @@
 name: 🐛 Bug Report
-description: File a bug report
+description: File a bug report about this Linux build
 body:
+  - type: markdown
+    attributes:
+      value: |
+        This tracker is for the **Linux build** of GitHub Desktop published from this fork, not for GitHub Desktop itself.
+
+        If the problem also happens on Windows or macOS, or has nothing to do with packaging, desktop integration or Linux itself, the upstream tracker at [desktop/desktop](https://github.com/desktop/desktop/issues) is where it gets fixed. Reporting it here is still fine when you are unsure: a wrong guess costs nothing, and pointing you to the right place is quick.
   - type: textarea
     id: the-problem
     attributes:
       label: The problem
       description:
-        Describe the issue you are experiencing with GitHub Desktop. Provide a
-        clear and concise description of what you were trying to do and what
-        happened, along with any error messages you encountered.
+        Describe the issue you are experiencing. Provide a clear and concise
+        description of what you were trying to do and what happened, along with
+        any error messages you encountered.
     validations:
       required: true
   - type: input
@@ -16,19 +22,51 @@ body:
     attributes:
       label: Release version
       description:
-        Open the 'About GitHub Desktop' menu item to see the GitHub Desktop
-        version.
+        The version this build reports, such as 3.6.6-linux1. Open the 'About
+        GitHub Desktop' menu item to see it.
+    validations:
+      required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which file did you install or run?
+      options:
+        - .deb
+        - .rpm
+        - AppImage
+        - Built from source
+        - Something else, described below
     validations:
       required: true
   - type: input
-    id: operating-system
+    id: distribution
     attributes:
-      label: Operating system
+      label: Distribution
       description:
-        'Enter the specific operating system version you are running (example:
-        Windows 10)'
+        'Name and version of your distribution (example: Ubuntu 24.04, Fedora
+        41, Arch)'
     validations:
       required: true
+  - type: dropdown
+    id: session
+    attributes:
+      label: Display server
+      description:
+        Wayland and X11 behave differently for window icons, screen sharing and
+        scaling, so this often decides where a bug comes from. `echo
+        $XDG_SESSION_TYPE` prints it.
+      options:
+        - Wayland
+        - X11
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: desktop-environment
+    attributes:
+      label: Desktop environment
+      description: 'Example: KDE Plasma 6, GNOME 47, XFCE'
   - type: textarea
     id: steps-to-reproduce
     attributes:
@@ -44,8 +82,11 @@ body:
     attributes:
       label: Log files
       description:
-        Please upload a log file from a day you experienced the issue. To access
-        the log files go to the menu and select `Help` > `Show Logs`.
+        Please upload a log file from a day you experienced the issue. The menu
+        item `Help` > `Show Logs` opens the folder, which on Linux is
+        `~/.config/GitHub Desktop/logs`. If the application does not start at
+        all, running it from a terminal and pasting what it prints is just as
+        useful.
       placeholder:
         You can attach log files by clicking this area to highlight it and then
         dragging the files in.
