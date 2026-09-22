@@ -33,6 +33,11 @@ jobs:
         ${{ contains(github.ref_name, 'beta') && 'beta' || 'production' }}
       npm_config_arch: x64
       TARGET_ARCH: x64
+      # Whether this run goes as far as building the three packages. See the
+      # packaging step for why it is not always worth it.
+      PACKAGING:
+        ${{ startsWith(github.ref, 'refs/tags/') || github.event_name ==
+        'workflow_dispatch' }}
       # Three native modules, printenvz, process-proxy and the trampoline,
       # compile with -Werror while redefining _FORTIFY_SOURCE, a macro the
       # compiler of Ubuntu 22.04 already defines on its own. The redefinition
@@ -90,7 +95,14 @@ jobs:
       - name: Run script tests
         run: yarn test:script
 
+      # Packaging is half the time of a run, and what it produces is only ever
+      # used by a release: the packages of an ordinary push expire untouched
+      # after five days. It therefore runs for a tag, and on request from the
+      # Actions tab when the packages themselves are what needs trying out.
+      # Everything above this line still runs on every push, since catching a
+      # broken build or a failing test is the point of the exercise.
       - name: Package application
+        if: env.PACKAGING == 'true'
         run: yarn package
 
       - name: Generate the release notes
@@ -100,6 +112,7 @@ jobs:
             "${{ github.workspace }}/dist" "${GITHUB_REF_NAME#release-}"
 
       - name: Upload the packages
+        if: env.PACKAGING == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: linux-x64-packages
