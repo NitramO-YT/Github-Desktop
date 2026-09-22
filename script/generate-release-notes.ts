@@ -225,24 +225,16 @@ function formatReleaseNote(note: ReleaseNoteEntry): string {
   return template.trim()
 }
 
-function renderSection(
-  name: string,
-  items: Array<ReleaseNoteEntry>,
-  omitIfEmpty: boolean = true
-): string {
-  if (items.length === 0 && omitIfEmpty) {
+// An upstream release only fills the categories it has something to say about:
+// 3.6.6 has two entries under Improved and nothing else, where 3.6.5 had five
+// fixes. A category with no entry is therefore the normal case rather than
+// something missing, and it is left out instead of being published empty.
+function renderSection(name: string, items: Array<ReleaseNoteEntry>): string {
+  if (items.length === 0) {
     return ''
   }
 
-  // A section kept although it is empty is a reminder to whoever reviews the
-  // draft, so it says what to do with it rather than leaving a bare TODO that
-  // could be published as is.
-  const itemsText =
-    items.length === 0
-      ? 'TODO: list what this build changes here, or remove this section.'
-      : items.map(formatReleaseNote).join('\n')
-
-  return `## ${name}\n\n${itemsText}`
+  return `## ${name}\n\n${items.map(formatReleaseNote).join('\n')}`
 }
 
 /**
@@ -258,6 +250,33 @@ function renderHeader(tag: string): string {
 These packages are built from the code of the official ${upstreamVersion} release, with the changes this fork adds for Linux. They are not published by GitHub, and the sections below list what the upstream release changed: <https://github.com/desktop/desktop/releases/tag/release-${upstreamVersion}>.
 
 Which package to pick, what each one needs and the problems known to this build are in the README: <https://github.com/NitramO-YT/Github-Desktop#readme>.`
+}
+
+/**
+ * Renders what this Linux build adds on top of the upstream release, read from
+ * linux-changelog.json. A version absent from that file simply has no such
+ * section, which is what happens when a build carries nothing of its own.
+ */
+function renderLinuxChanges(tag: string): string {
+  const changelogPath = join(dirname(__dirname), 'linux-changelog.json')
+
+  if (!fs.existsSync(changelogPath)) {
+    return ''
+  }
+
+  const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'))
+  const entries: Array<string> = changelog['releases'][tag] ?? []
+
+  if (entries.length === 0) {
+    console.warn(
+      `no Linux changelog entry for ${tag}, the release notes will only carry the upstream changelog`
+    )
+    return ''
+  }
+
+  return `## Linux changes in this build\n\n${entries
+    .map(entry => `- ${entry}`)
+    .join('\n')}`
 }
 
 /**
@@ -296,10 +315,11 @@ function generateDraftReleaseNotes(
   const sections = [
     renderHeader(tag),
     renderPackages(packagePaths),
+    renderLinuxChanges(tag),
     renderSection('New', releaseNotesGroups.new),
     renderSection('Added', releaseNotesGroups.added),
-    renderSection('Fixed', releaseNotesGroups.fixed, false),
-    renderSection('Improved', releaseNotesGroups.improved, false),
+    renderSection('Fixed', releaseNotesGroups.fixed),
+    renderSection('Improved', releaseNotesGroups.improved),
     renderSection('Removed', releaseNotesGroups.removed),
   ]
 

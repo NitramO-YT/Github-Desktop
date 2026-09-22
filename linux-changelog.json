@@ -1,0 +1,18 @@
+{
+  "comment": [
+    "What each Linux build adds on top of the upstream release it is made from.",
+    "The key is the full tag without its release- prefix, as in 3.6.6-linux1.",
+    "generate-release-notes.ts turns the entries into a section of the release",
+    "notes, above the upstream changelog. Leaving a version out of this file is",
+    "fine: the section is then left out too.",
+    "This file is ours. It sits next to the upstream changelog.json rather than",
+    "inside it, so that merging an upstream release never conflicts here."
+  ],
+  "releases": {
+    "3.6.6-linux1": [
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13",
+      "First Linux build of the 3.6 series, carrying eighteen months of upstream releases"
+    ]
+  }
+}
