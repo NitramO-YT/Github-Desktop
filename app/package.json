@@ -4,7 +4,7 @@
   "desktopName": "github-desktop.desktop",
   "bundleID": "com.github.GitHubClient",
   "companyName": "GitHub, Inc.",
-  "version": "3.6.6",
+  "version": "3.6.6-linux1",
   "main": "./main.js",
   "repository": {
     "type": "git",
