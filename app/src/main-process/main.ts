@@ -240,6 +240,25 @@ if (__DARWIN__) {
   })
 }
 
+/**
+ * Look through the arguments for something that appears to be an app url, i.e.
+ * a well-formed url using one of the protocols we've registered for.
+ */
+function findAppURL(argv: ReadonlyArray<string>) {
+  const prefixes = Array.from(possibleProtocols, p => `${p}://`)
+  return argv.find(arg => {
+    if (prefixes.some(p => arg.startsWith(p))) {
+      try {
+        new URL(arg)
+        return true
+      } catch (e) {
+        log.error(`Unable to parse argument as URL: ${arg}`)
+      }
+    }
+    return false
+  })
+}
+
 async function handleCommandLineArguments(argv: string[]) {
   const args = parseCommandLineArgs(argv, {
     boolean: ['protocol-launcher'],
@@ -261,18 +280,7 @@ async function handleCommandLineArguments(argv: string[]) {
     // sure that Chromium won't add more switches later on which is why we have
     // to resort to looking through all arguments looking for something that
     // appears to be an app url.
-    const prefixes = Array.from(possibleProtocols, p => `${p}://`)
-    const matchingUrl = argv.find(arg => {
-      if (prefixes.some(p => arg.startsWith(p))) {
-        try {
-          new URL(arg)
-          return true
-        } catch (e) {
-          log.error(`Unable to parse argument as URL: ${arg}`)
-        }
-      }
-      return false
-    })
+    const matchingUrl = findAppURL(argv)
 
     if (matchingUrl) {
       handleAppURL(matchingUrl)
@@ -283,14 +291,17 @@ async function handleCommandLineArguments(argv: string[]) {
     // risk a smuggled cli switch
     return
   } else if (__LINUX__) {
-    // we expect this call to have several parameters before the URL we want,
-    // so we should filter out the program name as well as any parameters that
-    // look like arguments to Electron
-    const argsWithoutParameters = argv.filter(
-      a => !a.endsWith('github-desktop') && !a.startsWith('--')
-    )
-    if (argsWithoutParameters.length > 0) {
-      handleAppURL(argsWithoutParameters[0])
+    // Desktop registers its protocol handlers on Linux through the desktop
+    // entry (`Exec=github-desktop %U`), so the url arrives as a plain argument
+    // without a --protocol-launcher switch to key off of. When we find one we
+    // bail just like we do on Windows rather than risk a smuggled cli switch.
+    // Launching without an app url is the normal case here though, so we carry
+    // on with the cli arguments below when there's none.
+    const matchingUrl = findAppURL(argv)
+
+    if (matchingUrl) {
+      handleAppURL(matchingUrl)
+      return
     }
   }
 
