@@ -81,6 +81,8 @@ chmod +x GitHubDesktop-linux-x86_64-<version>.AppImage
 ./GitHubDesktop-linux-x86_64-<version>.AppImage
 ```
 
+On Ubuntu 24.04 and its derivatives, the AppImage needs one extra step before it starts: see [the known issues](docs/known-issues.md#linux). The `.deb` and the `.rpm` are not affected.
+
 To check a download, put its `.sha256` file next to it and run `sha256sum -c <file>.sha256`.
 
 Updates are not installed automatically. To update, download the new version from the same link and install it the same way.

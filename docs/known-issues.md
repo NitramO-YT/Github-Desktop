@@ -232,6 +232,31 @@ If you see an error that says "Not enough resources are available to process thi
 
 ## Linux
 
+### The AppImage does not start on Ubuntu 24.04 and its derivatives
+
+Launching the AppImage ends with `Failed to move to new namespace: PID namespaces supported, Network namespace supported, but failed: errno = Operation not permitted`, followed by a fatal error in the zygote host.
+
+Chromium isolates its processes either through unprivileged user namespaces, which Ubuntu 24.04 restricts through AppArmor (`kernel.apparmor_restrict_unprivileged_userns` is set to `1`), or through a `chrome-sandbox` helper owned by root and setuid, which an AppImage cannot carry since it is never installed as root. The `.deb` and the `.rpm` install that helper, and are not affected.
+
+**Workarounds**, the first one being the only one that keeps the sandbox:
+
+- install the `.deb` or the `.rpm` instead of the AppImage;
+- launch the AppImage with `--no-sandbox`, which turns the Chromium sandbox off for the application;
+- lift the restriction for every unconfined program on the system with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or write an AppArmor profile for the AppImage alone.
+
+A desktop entry of your own pairs well with the second workaround. It puts the application in your menu, and declaring the URL schemes is what lets signing in to GitHub come back to the application, which an AppImage has no way of registering on its own. Save it as `~/.local/share/applications/github-desktop.desktop`, so that it matches the identifier the application announces to the window manager, then run `update-desktop-database ~/.local/share/applications`.
+
+```ini
+[Desktop Entry]
+Name=GitHub Desktop
+Exec=/home/you/Applications/github-desktop/GitHubDesktop.AppImage --no-sandbox %U
+Icon=/home/you/Applications/github-desktop/github-desktop.png
+Type=Application
+Categories=Development;
+Terminal=false
+MimeType=x-scheme-handler/x-github-client;x-scheme-handler/x-github-desktop-auth;x-scheme-handler/x-github-desktop-dev-auth;
+```
+
 ### I get a white screen when launching Desktop
 
 Electron enables hardware accelerated graphics by default, but some graphics cards have issues with hardware acceleration which means the application will launch successfully but it will be a white screen. If you are running GitHub Desktop within virtualization software like Parallels Desktop, hardware accelerated graphics may not be available.
