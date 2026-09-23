@@ -99,7 +99,11 @@ jobs:
 
       - name: Move the channel onto that version
         run: |
-          commit="$(gh api "repos/$GH_REPO/git/ref/tags/$SOURCE_TAG" --jq '.object.sha')"
+          # Releases are tagged with annotated tags, whose ref points at a tag
+          # object rather than at a commit. Asking for the commit of the tag
+          # resolves that in one step, where reading the ref hands over the tag
+          # object and leaves the release creation to fail with a server error.
+          commit="$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')"
           version="${SOURCE_TAG#release-}"
 
           if [ "$CHANNEL" = "stable" ]; then
