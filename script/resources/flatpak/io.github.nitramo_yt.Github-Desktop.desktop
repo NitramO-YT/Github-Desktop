@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=GitHub Desktop
+Comment=Simple collaboration from your desktop
+Exec=github-desktop %U
+Icon=io.github.nitramo_yt.Github-Desktop
+Terminal=false
+Type=Application
+StartupNotify=true
+Categories=Development;RevisionControl;
+Keywords=git;github;
+MimeType=x-scheme-handler/x-github-client;x-scheme-handler/x-github-desktop-auth;x-scheme-handler/x-github-desktop-dev-auth;
