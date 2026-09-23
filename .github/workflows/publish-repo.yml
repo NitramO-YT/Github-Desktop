@@ -113,10 +113,25 @@ jobs:
       # The bucket holds what each channel currently serves. Reading it back is
       # what lets a run add one version and drop the oldest without having to
       # work out, from the releases alone, which ones were ever promoted.
+      #
+      # Only a bucket nothing was ever published to lacks the file, and R2 then
+      # answers 404. Any other failure to read it stops the run: starting from
+      # an empty state would publish a single channel, and the uploads below,
+      # which delete whatever the new tree no longer holds, would take the
+      # other channels away from everyone subscribed to them.
       - name: Read what each channel holds today
         run: |
-          aws s3 cp "s3://$BUCKET/state.json" state.json --endpoint-url "$AWS_ENDPOINT_URL" \
-            || echo '{"stable": [], "latest": [], "beta": []}' > state.json
+          if ! aws s3 cp "s3://$BUCKET/state.json" state.json \
+              --endpoint-url "$AWS_ENDPOINT_URL" 2> read-error.txt; then
+            if grep -qF '(404)' read-error.txt; then
+              echo "No state.json in the bucket yet: this is its first publication."
+              echo '{"stable": [], "latest": [], "beta": []}' > state.json
+            else
+              cat read-error.txt >&2
+              echo "state.json could not be read, so nothing is published." >&2
+              exit 1
+            fi
+          fi
           cat state.json
 
       - name: Work out the versions to publish
