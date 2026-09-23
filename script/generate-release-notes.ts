@@ -244,10 +244,17 @@ function renderSection(name: string, items: Array<ReleaseNoteEntry>): string {
  */
 function renderHeader(tag: string): string {
   const upstreamVersion = getVersionWithoutSuffix(tag)
+  const upstreamRelease = `<https://github.com/desktop/desktop/releases/tag/release-${upstreamVersion}>`
+
+  // Only the first build made from an upstream release carries its changelog,
+  // which a later build of the same release would repeat word for word.
+  const upstreamChanges = isInitialTag(tag)
+    ? `They are not published by GitHub, and the sections below list what the upstream release changed: ${upstreamRelease}.`
+    : `They are not published by GitHub. What the upstream release changed is listed on its own release page: ${upstreamRelease}.`
 
   return `GitHub Desktop ${upstreamVersion} for Linux, build \`${tag}\`.
 
-These packages are built from the code of the official ${upstreamVersion} release, with the changes this fork adds for Linux. They are not published by GitHub, and the sections below list what the upstream release changed: <https://github.com/desktop/desktop/releases/tag/release-${upstreamVersion}>.
+These packages are built from the code of the official ${upstreamVersion} release, with the changes this fork adds for Linux. ${upstreamChanges}
 
 Which package to pick, what each one needs and the problems known to this build are in the README: <https://github.com/NitramO-YT/Github-Desktop#readme>.`
 }
@@ -269,7 +276,7 @@ function renderLinuxChanges(tag: string): string {
 
   if (entries.length === 0) {
     console.warn(
-      `no Linux changelog entry for ${tag}, the release notes will only carry the upstream changelog`
+      `no Linux changelog entry for ${tag}, the release notes will say nothing of what this build changes`
     )
     return ''
   }

@@ -38,13 +38,6 @@ on:
         default: false
         type: boolean
 
-# Declared for the workflow rather than for the job that writes, because the
-# repository grants the token read access by default and a workflow calling
-# another one settles its permissions here. Leaving it on the job alone let the
-# release creation fall back to read, and fail with a 403.
-permissions:
-  contents: write
-
 jobs:
   promote:
     name: Point ${{ inputs.channel }} at ${{ inputs.version }}
@@ -119,7 +112,7 @@ jobs:
 
           if [ "$CHANNEL" = "stable" ]; then
             title="Stable: GitHub Desktop for Linux $version"
-            notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG), promoted once it had been in use without a known issue."
+            notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG)."
             extra=()
           else
             title="Beta: GitHub Desktop for Linux $version"
@@ -127,13 +120,32 @@ jobs:
             extra=(--prerelease)
           fi
 
-          # The pointer is recreated rather than edited, so that its files are
+          # The tag goes first because it is the one step GitHub may refuse, and
+          # a refusal here leaves the channel serving what it served before.
+          # GitHub lets the workflow token tag a commit only while each of its
+          # workflow files also exists, same path and same content, on some
+          # branch. The versions/ branch that ci-linux.yml keeps on the commit
+          # of each version is what still satisfies that days later, once the
+          # workflows have moved on.
+          if gh api "repos/$GH_REPO/git/ref/tags/$CHANNEL" > /dev/null 2>&1; then
+            request=(--method PATCH "repos/$GH_REPO/git/refs/tags/$CHANNEL" -F force=true)
+          else
+            request=("repos/$GH_REPO/git/refs" -f "ref=refs/tags/$CHANNEL")
+          fi
+
+          if ! gh api "${request[@]}" -f "sha=$commit" > /dev/null; then
+            echo "GitHub refused to place the $CHANNEL tag on $commit." >&2
+            echo "The branch versions/$version is what allows it: create it on that commit from GitHub Desktop, then run this again." >&2
+            exit 1
+          fi
+
+          # The release is recreated rather than edited, so that its files are
           # exactly those of the version it points at, with nothing left over
-          # from the version before.
-          gh release delete "$CHANNEL" --yes --cleanup-tag || true
+          # from the version before. It is created on the tag placed above.
+          gh release delete "$CHANNEL" --yes || true
 
           gh release create "$CHANNEL" assets/* \
-            --target "$commit" \
+            --verify-tag \
             --title "$title" \
             --notes "$notes" \
             --latest=false \
@@ -143,24 +155,11 @@ jobs:
 
   # The package repository follows the channels rather than the releases, so
   # that what apt and dnf offer is always what the Stable and Beta links serve.
-  #
-  # Started through the API rather than with a uses: job. Calling a reusable
-  # workflow from here left the release creation above without write access,
-  # failing with a 403 on a token that had it the run before.
   repository:
-    name: Start the package repository update
+    name: Update the package repository
     needs: promote
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - name: Publish the channel that just moved
-        run: |
-          gh workflow run publish-repo.yml \
-            --ref "${{ github.ref_name }}" \
-            --field "version=${{ needs.promote.outputs.version }}" \
-            --field "channel=${{ inputs.channel }}"
-          echo "Publication of ${{ inputs.channel }} requested." >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/publish-repo.yml
+    with:
+      version: ${{ needs.promote.outputs.version }}
+      channel: ${{ inputs.channel }}
+    secrets: inherit
