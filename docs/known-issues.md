@@ -257,6 +257,20 @@ Terminal=false
 MimeType=x-scheme-handler/x-github-client;x-scheme-handler/x-github-desktop-auth;x-scheme-handler/x-github-desktop-dev-auth;
 ```
 
+### Signing in comes back to the wrong installation
+
+The `.deb` or `.rpm` and the Flatpak both register the links GitHub uses to hand the sign-in back to the application, `x-github-desktop-dev-auth://` among them. With both installed, the link goes to whichever one the desktop holds as the default for it, which may not be the one you signed in from, and some desktops ask which one to open with two identical "GitHub Desktop" entries.
+
+**Workaround:** keep only one of the two installed, or make the one you use the default for these links. For the Flatpak:
+
+```sh
+for scheme in x-github-client x-github-desktop-auth x-github-desktop-dev-auth; do
+  xdg-mime default io.github.nitramo_yt.Github-Desktop.desktop "x-scheme-handler/$scheme"
+done
+```
+
+For the `.deb` or the `.rpm`, name `github-desktop.desktop` instead.
+
 ### I get a white screen when launching Desktop
 
 Electron enables hardware accelerated graphics by default, but some graphics cards have issues with hardware acceleration which means the application will launch successfully but it will be a white screen. If you are running GitHub Desktop within virtualization software like Parallels Desktop, hardware accelerated graphics may not be available.

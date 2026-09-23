@@ -58,13 +58,14 @@ Each release provides, for x86_64:
 
 - a `.deb` package, for Debian, Ubuntu and their derivatives;
 - a `.rpm` package, for Fedora, openSUSE and their derivatives;
-- an `.AppImage`, for any distribution.
+- an `.AppImage`, for any distribution;
+- a `.flatpak` bundle, for any distribution with Flatpak.
 
 Each file comes with a `.sha256` checksum file.
 
 ### Installing from the package repository
 
-The packages are also published in an APT and RPM repository, <https://packages-github-desktop.nitramo.fr/>. Installed from it, GitHub Desktop is updated by `apt` or `dnf` along with the rest of the system. The repository offers the same three channels as the links above: the commands below follow the stable channel, and replacing `stable` with `latest` or `beta` follows another one.
+The packages are also published in an APT, RPM and Flatpak repository, <https://packages-github-desktop.nitramo.fr/>. Installed from it, GitHub Desktop is updated by `apt`, `dnf` or `flatpak` along with the rest of the system. The repository offers the same three channels as the links above: the commands below follow the stable channel, and replacing `stable` with `latest` or `beta` follows another one.
 
 ```sh
 # Debian, Ubuntu and their derivatives
@@ -80,7 +81,13 @@ sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
 sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
 sudo dnf install github-desktop
+
+# Flatpak, on any distribution, for your account only
+flatpak install --user \
+  https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref
 ```
+
+The Flatpak identifier is `io.github.nitramo_yt.Github-Desktop`. Its runtime, shared with many other applications, comes from Flathub.
 
 The repository is signed with the key `0A63 E20B 6AF5 A6EC D45B D895 6B53 59F0 1735 4722`. [Its page](https://packages-github-desktop.nitramo.fr/) explains how to move to another channel later.
 
@@ -101,13 +108,16 @@ sudo zypper install ./GitHubDesktop-linux-x86_64-<version>.rpm
 # AppImage, on any distribution
 chmod +x GitHubDesktop-linux-x86_64-<version>.AppImage
 ./GitHubDesktop-linux-x86_64-<version>.AppImage
+
+# Flatpak, on any distribution
+flatpak install --user ./GitHubDesktop-linux-x86_64-<version>.flatpak
 ```
 
 On Ubuntu 24.04 and its derivatives, the AppImage needs one extra step before it starts: see [the known issues](docs/known-issues.md#linux). The `.deb` and the `.rpm` are not affected.
 
 To check a download, put its `.sha256` file next to it and run `sha256sum -c <file>.sha256`.
 
-A downloaded file is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead.
+A downloaded `.deb`, `.rpm` or AppImage is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead. The `.flatpak` bundle is the exception: installing it subscribes to the package repository, on the latest channel, or on beta for a beta, and `flatpak update` then brings the versions that follow.
 
 ### Saving your credentials
 
