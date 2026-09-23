@@ -1,5 +1,8 @@
 name: 'CI / Linux'
 
+# A push of prose changes nothing this workflow could check, so it is left
+# alone. Path filters are not evaluated for tags, which is what makes this
+# safe: a release tag always builds, whatever it happens to touch.
 on:
   push:
     branches:
@@ -8,11 +11,16 @@ on:
       - 'linux-release-*'
     tags:
       - 'release-*-linux*'
+    paths-ignore: &prose
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches:
       - linux
       - linux-beta
       - 'linux-release-*'
+    paths-ignore: *prose
   workflow_dispatch:
 
 jobs:
