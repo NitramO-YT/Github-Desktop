@@ -177,11 +177,12 @@ done
 #
 # Rendered rather than copied, because it names the version each channel
 # serves, with the size and checksum of each file, which only the staging
-# directory knows. The icons come from the application, so the page shows
-# whichever artwork the build currently ships.
+# directory knows, and holds its texts in every language of
+# resources/repo/locales/. The icons come from the application, so the page
+# shows whichever artwork the build currently ships.
 log "Rendering the landing page"
 node "$HERE/render-repo-page.mjs" \
-  "$HERE/resources/repo/index.html" "$STAGING" "$OUTPUT/index.html"
+  "$HERE/resources/repo/index.html" "$OUTPUT/index.html" "$STAGING"
 cp "$HERE/../app/static/linux/logos/128x128.png" "$OUTPUT/logo.png"
 cp "$HERE/../app/static/linux/logos/32x32.png" "$OUTPUT/favicon.png"
 

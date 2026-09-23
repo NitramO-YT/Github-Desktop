@@ -146,6 +146,8 @@ This fork is maintained by a single volunteer. If nobody has responded to your i
 
 Contributions to the Linux support (packaging, desktop integration, fixes specific to Linux) are welcome here: open an issue or a pull request on this repository.
 
+The page of the package repository can be translated into other languages, with a single file per language: [`script/resources/repo/locales/`](./script/resources/repo/locales/) explains how.
+
 Everything else, such as new features or fixes that concern every platform, belongs to the [official project](https://github.com/desktop/desktop). Its [CONTRIBUTING.md](./.github/CONTRIBUTING.md) document will help you get set up and familiar with the source, and the [documentation](docs/) folder contains more resources.
 
 ## Building Desktop
