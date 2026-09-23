@@ -4,9 +4,10 @@ name: 'Publish the package repository'
 # currently holds, so that users upgrade with apt or dnf instead of downloading
 # a file by hand.
 #
-# It runs after a channel moves rather than after a release is published: the
-# repository then follows exactly what the Stable and Beta links serve, and the
-# waiting period before a version becomes stable protects apt users too.
+# The three channels carry the same meaning as the three download links in the
+# README, and are fed the same way: latest fills itself when a release is
+# published, stable and beta when their pointer is moved. An apt user therefore
+# waits exactly as long as someone downloading by hand from the same link.
 
 on:
   workflow_call:
@@ -19,6 +20,10 @@ on:
         description: 'Channel that moved'
         required: true
         type: string
+  # A release becomes the newest one the moment it is published, the way the
+  # Latest link on the releases page does, without waiting to be promoted.
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -32,6 +37,7 @@ on:
         type: choice
         options:
           - stable
+          - latest
           - beta
 
 env:
@@ -42,15 +48,20 @@ env:
 
 jobs:
   publish:
-    name: Publish ${{ inputs.version }} to the ${{ inputs.channel }} channel
+    name: Publish to the package repository
+    # Moving a channel creates a release too, tagged stable or beta, and
+    # publishing it would otherwise send the channel round again. Only the
+    # release- tags name a version, so they are the ones worth reacting to.
+    if: >-
+      github.event_name != 'release' ||
+      (github.event.release.prerelease == false &&
+      startsWith(github.event.release.tag_name, 'release-'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ inputs.version }}
-      CHANNEL: ${{ inputs.channel }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
@@ -62,6 +73,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      # A published release names its own version and belongs to the newest
+      # channel by definition; a manual run says which version goes where.
+      - name: Work out what is being published, and where
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag='${{ github.event.release.tag_name }}'
+            echo "VERSION=${tag#release-}" >> "$GITHUB_ENV"
+            echo "CHANNEL=latest" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+            echo "CHANNEL=${{ inputs.channel }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Install the repository tools
         run: |
@@ -75,7 +99,7 @@ jobs:
       - name: Read what each channel holds today
         run: |
           aws s3 cp "s3://$BUCKET/state.json" state.json --endpoint-url "$AWS_ENDPOINT_URL" \
-            || echo '{"stable": [], "beta": []}' > state.json
+            || echo '{"stable": [], "latest": [], "beta": []}' > state.json
           cat state.json
 
       - name: Work out the versions to publish
@@ -91,7 +115,7 @@ jobs:
               .slice(0, Number(KEEP))
 
             state[CHANNEL] = updated
-            for (const channel of ["stable", "beta"]) state[channel] ??= []
+            for (const channel of ["stable", "latest", "beta"]) state[channel] ??= []
 
             writeFileSync("state.json", JSON.stringify(state, null, 2) + "\n")
             writeFileSync("versions.txt", updated.join("\n") + "\n")
@@ -101,10 +125,10 @@ jobs:
 
       - name: Collect the packages of those versions
         run: |
-          mkdir -p staging/deb/stable staging/deb/beta \
-                   staging/rpm/stable staging/rpm/beta
+          mkdir -p staging/deb/stable staging/deb/latest staging/deb/beta \
+                   staging/rpm/stable staging/rpm/latest staging/rpm/beta
 
-          for channel in stable beta; do
+          for channel in stable latest beta; do
             # The trailing newline matters: read drops a last line that has
             # none, which silently downloads nothing at all.
             node -e '
@@ -135,7 +159,7 @@ jobs:
             const state = require("./state.json")
             let missing = 0
 
-            for (const channel of ["stable", "beta"]) {
+            for (const channel of ["stable", "latest", "beta"]) {
               for (const version of state[channel] ?? []) {
                 for (const [kind, ext] of [["deb", ".deb"], ["rpm", ".rpm"]]) {
                   const dir = `staging/${kind}/${channel}`

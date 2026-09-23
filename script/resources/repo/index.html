@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GitHub Desktop for Linux — package repository</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
       :root {
         color-scheme: light dark;
@@ -13,6 +14,7 @@
         --border: #d1d9e0;
         --code-bg: #f6f8fa;
         --accent: #0969da;
+        --pick-bg: #f6f8fa;
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -22,6 +24,7 @@
           --border: #3d444d;
           --code-bg: #151b23;
           --accent: #4493f8;
+          --pick-bg: #151b23;
         }
       }
       * {
@@ -30,50 +33,86 @@
       body {
         margin: 0 auto;
         padding: 3rem 1rem 5rem;
-        max-width: 46rem;
+        max-width: 48rem;
         background: var(--bg);
         color: var(--fg);
         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans,
           Helvetica, Arial, sans-serif;
       }
+      header {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 2.5rem;
+      }
+      header img {
+        width: 64px;
+        height: 64px;
+        flex: none;
+      }
       h1 {
-        margin: 0 0 0.25rem;
-        font-size: 1.6rem;
+        margin: 0 0 0.2rem;
+        font-size: 1.5rem;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
       }
       h2 {
-        margin: 2.5rem 0 0.75rem;
+        margin: 2.75rem 0 0.75rem;
         padding-bottom: 0.3rem;
         border-bottom: 1px solid var(--border);
         font-size: 1.15rem;
       }
-      p.lead {
-        margin: 0 0 2rem;
-        color: var(--muted);
+      h3 {
+        margin: 1.75rem 0 0.4rem;
+        font-size: 1rem;
       }
       pre {
-        margin: 0.75rem 0;
+        margin: 0.6rem 0;
         padding: 0.9rem 1rem;
         overflow-x: auto;
         border: 1px solid var(--border);
         border-radius: 6px;
         background: var(--code-bg);
-        font-size: 0.85rem;
-        line-height: 1.5;
+        font-size: 0.83rem;
+        line-height: 1.55;
       }
       code {
         font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      }
+      table {
+        width: 100%;
+        margin: 0.5rem 0 1.5rem;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+      }
+      th,
+      td {
+        padding: 0.6rem 0.7rem;
+        border: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--pick-bg);
+        font-weight: 600;
+      }
+      td code {
+        font-size: 0.88em;
       }
       a {
         color: var(--accent);
       }
       .note {
-        padding: 0.75rem 1rem;
+        margin: 1rem 0;
+        padding: 0.7rem 1rem;
         border-left: 3px solid var(--border);
         color: var(--muted);
         font-size: 0.9rem;
       }
       footer {
-        margin-top: 3rem;
+        margin-top: 3.5rem;
         padding-top: 1rem;
         border-top: 1px solid var(--border);
         color: var(--muted);
@@ -82,41 +121,121 @@
     </style>
   </head>
   <body>
-    <h1>GitHub Desktop for Linux</h1>
-    <p class="lead">
-      Package repository for the maintained Linux builds. Add it once, then
-      upgrade with the rest of your system.
+    <header>
+      <img src="/logo.png" alt="" width="64" height="64" />
+      <div>
+        <h1>GitHub Desktop for Linux</h1>
+        <p>
+          Package repository for the maintained Linux builds. Add it once, then
+          upgrade with the rest of your system.
+        </p>
+      </div>
+    </header>
+
+    <h2>Choose a channel</h2>
+    <p>
+      Pick one. Your package manager then keeps you on the newest version of
+      that channel by itself, with no download to repeat.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>What it serves</th>
+          <th>Choose it if</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>stable</code></td>
+          <td>
+            A version that has been in use for a while without a known issue.
+            Promoted by hand, never on the day it is released.
+          </td>
+          <td>you want the safest option. Start here.</td>
+        </tr>
+        <tr>
+          <td><code>latest</code></td>
+          <td>
+            The newest release, as soon as it is published. It has not been
+            proven yet.
+          </td>
+          <td>you want new fixes without waiting.</td>
+        </tr>
+        <tr>
+          <td><code>beta</code></td>
+          <td>
+            Built from the official beta versions: what the next release will
+            bring, and the bugs a beta comes with.
+          </td>
+          <td>you want to test ahead and report what breaks.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">
+      Most of the time <code>stable</code> and <code>latest</code> hold the same
+      version. They differ after a new release, until it has been proven.
     </p>
 
     <h2>Debian, Ubuntu, Linux Mint, Pop!_OS</h2>
+    <p>Add the signing key once, whichever channel you pick:</p>
     <pre><code>curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
-  | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg
+  | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg</code></pre>
 
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+    <h3>Then, for the stable channel</h3>
+    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
-    <h2>Fedora, RHEL, Rocky, AlmaLinux</h2>
-    <pre><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
+    <h3>For the latest channel</h3>
+    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+https://packages-github-desktop.nitramo.fr/deb latest main" \
+  | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
-sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
+
+    <h3>For the beta channel</h3>
+    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+https://packages-github-desktop.nitramo.fr/deb beta main" \
+  | sudo tee /etc/apt/sources.list.d/github-desktop.list
+
+sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
+
+    <h2>Fedora, RHEL, Rocky, AlmaLinux</h2>
+    <p>Import the signing key once, whichever channel you pick:</p>
+    <pre><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key</code></pre>
+
+    <h3>Then, for the stable channel</h3>
+    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
-    <h2>Preview builds</h2>
+    <h3>For the latest channel</h3>
+    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+  https://packages-github-desktop.nitramo.fr/rpm/latest/github-desktop.repo
+
+sudo dnf install github-desktop</code></pre>
+
+    <h3>For the beta channel</h3>
+    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+  https://packages-github-desktop.nitramo.fr/rpm/beta/github-desktop.repo
+
+sudo dnf install github-desktop</code></pre>
+
+    <h2>Changing channel later</h2>
     <p>
-      Builds made from upstream betas live in their own channel. They carry what
-      the next release will bring, and the bugs a beta comes with. Replace
-      <code>stable</code> with <code>beta</code> in the commands above to follow
-      it instead.
+      Replace the file you created and update: on Debian and friends
+      <code>/etc/apt/sources.list.d/github-desktop.list</code>, on Fedora and
+      friends <code>/etc/yum.repos.d/github-desktop.repo</code>. There is one
+      file and one package name, so a machine follows one channel at a time.
     </p>
     <p class="note">
-      Both channels install the same package name, so a machine follows one
-      channel at a time. Moving from beta back to stable means uninstalling
-      first, since the beta carries the higher version number.
+      Moving down a channel, from beta to stable for instance, means removing
+      the package first: the version you already have is the higher one, and
+      package managers refuse to go backwards on their own.
     </p>
 
     <h2>Signing key</h2>
