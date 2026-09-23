@@ -74,6 +74,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Several steps below, and the page renderer, are written in JavaScript.
+      # Pinning the version the project already asks for keeps them from
+      # depending on whatever the runner image happens to ship.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
       # A published release names its own version and belongs to the newest
       # channel by definition; a manual run says which version goes where.
       - name: Work out what is being published, and where
@@ -186,6 +193,9 @@ jobs:
 
       - name: Build the repository
         run: |
+          # The landing page names the version each channel serves, so the
+          # state travels with the packages it describes.
+          cp state.json staging/state.json
           bash script/build-linux-repo.sh staging repo "$GPG_KEY"
           cp state.json repo/state.json
 

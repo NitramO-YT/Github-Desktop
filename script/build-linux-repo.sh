@@ -66,17 +66,6 @@ log "Exporting the public key"
 gpg --armor --export "$GPG_KEY" > "$OUTPUT/gpg.key"
 test -s "$OUTPUT/gpg.key"
 
-# R2 serves objects and nothing else: without this file the address a user is
-# given in the README answers 404. It holds the commands to subscribe, so that
-# landing on the repository by itself is enough to know what to do with it.
-#
-# The icons come from the application rather than from a copy kept here, so the
-# page shows whichever artwork the build currently ships.
-log "Adding the landing page"
-cp "$HERE/resources/repo/index.html" "$OUTPUT/index.html"
-cp "$HERE/../app/static/linux/logos/128x128.png" "$OUTPUT/logo.png"
-cp "$HERE/../app/static/linux/logos/32x32.png" "$OUTPUT/favicon.png"
-
 build_deb_channel() {
   local channel="$1"
   local source="$STAGING/deb/$channel"
@@ -176,6 +165,20 @@ log "Building the RPM repository"
 for channel in $CHANNELS; do
   build_rpm_channel "$channel"
 done
+
+# R2 serves objects and nothing else: without this page the address the README
+# gives out answers 404. It holds the commands to subscribe and the files to
+# download, so that landing on the repository by itself is enough to know what
+# to do with it.
+#
+# Rendered rather than copied, because it names the version each channel
+# serves, which only the tree just built knows. The icons come from the
+# application, so the page shows whichever artwork the build currently ships.
+log "Rendering the landing page"
+node "$HERE/render-repo-page.mjs" \
+  "$HERE/resources/repo/index.html" "$OUTPUT" "$STAGING/state.json" "$OUTPUT/index.html"
+cp "$HERE/../app/static/linux/logos/128x128.png" "$OUTPUT/logo.png"
+cp "$HERE/../app/static/linux/logos/32x32.png" "$OUTPUT/favicon.png"
 
 log "Done"
 du -sh "$OUTPUT"
