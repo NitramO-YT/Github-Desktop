@@ -231,6 +231,16 @@ jobs:
         run: |
           aws s3 sync repo/deb/pool "s3://$BUCKET/deb/pool" \
             --endpoint-url "$AWS_ENDPOINT_URL" --delete --size-only
+
+          # Everything sitting at the root of the tree, named or not: listing
+          # the files one by one is how the icons ended up built but never
+          # uploaded. The pattern excludes any path holding a slash, so the
+          # channels above are left exactly as they were just written.
+          aws s3 sync repo "s3://$BUCKET" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --exclude '*/*' \
+            --cache-control 'public, max-age=300'
+
           aws s3 cp repo/index.html "s3://$BUCKET/index.html" \
             --endpoint-url "$AWS_ENDPOINT_URL" \
             --content-type 'text/html; charset=utf-8' \
