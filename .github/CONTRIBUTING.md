@@ -5,11 +5,11 @@
 > still apply to the code, since this fork follows upstream closely, but the
 > teams, the review process and the roadmap they mention are theirs, not ours.
 >
-> What a contribution here can change: packaging of the `.deb`, `.rpm` and
-> AppImage, desktop integration such as the desktop entry, icons and protocol
-> handlers, detection of terminals, editors and shells, dependencies and
-> supported distributions, and the workflows that build and publish the
-> releases.
+> What a contribution here can change: packaging of the `.deb`, `.rpm`,
+> AppImage and Flatpak, desktop integration such as the desktop entry, icons
+> and protocol handlers, detection of terminals, editors and shells,
+> dependencies and supported distributions, and the workflows that build and
+> publish the releases.
 >
 > What it cannot change: the application itself. A pull request touching shared
 > code will be sent to [desktop/desktop](https://github.com/desktop/desktop)

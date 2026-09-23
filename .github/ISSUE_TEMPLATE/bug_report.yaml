@@ -35,6 +35,7 @@ body:
         - .deb
         - .rpm
         - AppImage
+        - Flatpak
         - Built from source
         - Something else, described below
     validations:
@@ -84,9 +85,10 @@ body:
       description:
         Please upload a log file from a day you experienced the issue. The menu
         item `Help` > `Show Logs` opens the folder, which on Linux is
-        `~/.config/GitHub Desktop/logs`. If the application does not start at
-        all, running it from a terminal and pasting what it prints is just as
-        useful.
+        `~/.config/GitHub Desktop/logs`, or
+        `~/.var/app/io.github.nitramo_yt.Github-Desktop/config/GitHub
+        Desktop/logs` for the Flatpak. If the application does not start at all,
+        running it from a terminal and pasting what it prints is just as useful.
       placeholder:
         You can attach log files by clicking this area to highlight it and then
         dragging the files in.

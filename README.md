@@ -59,7 +59,7 @@ Each release provides, for x86_64:
 - a `.deb` package, for Debian, Ubuntu and their derivatives;
 - a `.rpm` package, for Fedora, openSUSE and their derivatives;
 - an `.AppImage`, for any distribution;
-- a `.flatpak` bundle, for any distribution with Flatpak.
+- a `.flatpak` bundle, for any distribution with Flatpak, except in the Stable release and in the versions built before it was added.
 
 Each file comes with a `.sha256` checksum file.
 
@@ -87,7 +87,7 @@ flatpak install --user \
   https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref
 ```
 
-The Flatpak identifier is `io.github.nitramo_yt.Github-Desktop`. Its runtime, shared with many other applications, comes from Flathub.
+The Flatpak identifier is `io.github.nitramo_yt.Github-Desktop`. Its runtime, shared with many other applications, comes from Flathub. A channel offers the Flatpak from the first of its versions that comes with one: [the repository page](https://packages-github-desktop.nitramo.fr/) shows which channels already do.
 
 The repository is signed with the key `0A63 E20B 6AF5 A6EC D45B D895 6B53 59F0 1735 4722`. [Its page](https://packages-github-desktop.nitramo.fr/) explains how to move to another channel later.
 
@@ -117,7 +117,7 @@ On Ubuntu 24.04 and its derivatives, the AppImage needs one extra step before it
 
 To check a download, put its `.sha256` file next to it and run `sha256sum -c <file>.sha256`.
 
-A downloaded `.deb`, `.rpm` or AppImage is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead. The `.flatpak` bundle is the exception: installing it subscribes to the package repository, on the latest channel, or on beta for a beta, and `flatpak update` then brings the versions that follow.
+A downloaded `.deb`, `.rpm` or AppImage is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead. The `.flatpak` bundle is the exception: installing it subscribes to the package repository, on the latest channel, or on beta for a beta, and `flatpak update` then brings the versions that follow. That is why the Stable release leaves it out: its page gives instead the command above, which follows the stable channel.
 
 ### Saving your credentials
 
