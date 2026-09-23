@@ -9,6 +9,12 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.6.6-linux2": [
+      "Also available from an APT and RPM package repository, which keeps it up to date through apt or dnf: <https://packages-github-desktop.nitramo.fr/>",
+      "The application itself is the same as in 3.6.6-linux1",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.6-linux1": [
       "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
       "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13",
