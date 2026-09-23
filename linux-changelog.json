@@ -9,6 +9,17 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.6.7-beta2-linux3": [
+      "Preview build, made from the upstream 3.6.7 beta 2: it carries what the next release will bring, and the bugs a beta comes with",
+      "Also available as a Flatpak, from the beta channel of the package repository or as a .flatpak file: either way, flatpak update brings the betas that follow",
+      "The package repository serves the .deb, the .rpm and the Flatpak on its beta channel, and keeps them up to date through apt, dnf or flatpak: <https://packages-github-desktop.nitramo.fr/>",
+      "The application itself is the same as in 3.6.7-beta2-linux2",
+      "The .deb package is numbered below the 3.6.7 release it precedes, so that apt moves on to that release once it is out",
+      "If you installed the .deb of 3.6.7-beta2-linux1, install this one by hand: apt reads its corrected number as older",
+      "Beta channel features are enabled, as in the official beta builds",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.7-beta2-linux2": [
       "Preview build, made from the upstream 3.6.7 beta 2: it carries what the next release will bring, and the bugs a beta comes with",
       "The .deb package is numbered below the 3.6.7 release it precedes, so that apt moves on to that release once it is out",
