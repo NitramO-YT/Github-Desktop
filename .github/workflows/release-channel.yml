@@ -139,6 +139,11 @@ jobs:
           # the rule matters, as a --- right under a paragraph turns that
           # paragraph into a heading.
           body="$(gh release view "$SOURCE_TAG" --json body --jq '.body')"
+          # The stable release does not carry the Flatpak of the version, so its
+          # row leaves the download table of the notes as well.
+          if [ -n "${FLATPAK_REF:-}" ]; then
+            body="$(printf '%s\n' "$body" | awk '!/^\| `[^`]*\.flatpak` \|/')"
+          fi
           {
             echo "$notes"
             if [ -n "$body" ]; then

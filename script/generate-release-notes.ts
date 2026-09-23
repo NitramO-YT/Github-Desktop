@@ -16,6 +16,11 @@ type ReleaseNoteEntry = {
 
 const PACKAGE_EXTENSIONS = ['.deb', '.rpm', '.AppImage']
 
+// The Flatpak is built from the .deb by a job of its own, after these notes are
+// written. Its row of the download table is left as this line, which the job
+// that creates the release replaces once the Flatpak and its checksum exist.
+const FLATPAK_ROW = '<!-- flatpak -->'
+
 // A tag reads X.Y.Z-linuxN: the version of the upstream release this build
 // comes from, then the revision of the Linux build made from it. Declared up
 // here because the body of this script runs before the functions below it.
@@ -307,6 +312,7 @@ function renderPackages(packagePaths: Array<string>): string {
 | File | SHA-256 |
 | --- | --- |
 ${rows.join('\n')}
+${FLATPAK_ROW}
 
 To check a download, put its \`.sha256\` file next to it and run \`sha256sum -c <file>.sha256\`.`
 }

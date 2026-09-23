@@ -21,6 +21,7 @@ distribution:
  - AppImage (`.AppImage`)
  - Debian (`.deb`)
  - RPM (`.rpm`)
+ - Flatpak (`.flatpak`)
 
 ## Data Directories
 
@@ -39,6 +40,7 @@ GitHub Desktop will create directories to manage the files and data it needs to 
 This varies based on the installer chosen:
 
  - AppImage, Debian and RPM: `~/.config/GitHub Desktop/`
+ - Flatpak: `~/.var/app/io.github.nitramo_yt.Github-Desktop/config/GitHub Desktop/`
 
 ## Log Files
 

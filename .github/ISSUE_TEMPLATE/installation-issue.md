@@ -23,5 +23,6 @@ If the application does not start, run it from a terminal and paste what it prin
 
 - installed from the `.deb` or the `.rpm`: `github-desktop`
 - AppImage: the path you run it from, for instance `./GitHubDesktop-linux-x86_64-3.6.6-linux1.AppImage`
+- Flatpak: `flatpak run io.github.nitramo_yt.Github-Desktop`
 
 Known issues, including the sandbox error that stops the AppImage on Ubuntu 24.04 and its derivatives, are listed in [docs/known-issues.md](../../docs/known-issues.md). Please have a look before opening an issue: the answer may already be there.

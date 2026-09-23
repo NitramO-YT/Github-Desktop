@@ -59,7 +59,7 @@ Chaque version fournit, pour x86_64 :
 - un paquet `.deb`, pour Debian, Ubuntu et leurs dérivées ;
 - un paquet `.rpm`, pour Fedora, openSUSE et leurs dérivées ;
 - une `.AppImage`, pour n'importe quelle distribution ;
-- un fichier `.flatpak`, pour n'importe quelle distribution dotée de Flatpak.
+- un fichier `.flatpak`, pour n'importe quelle distribution dotée de Flatpak, sauf derrière le lien Version stable et dans les versions construites avant son ajout.
 
 Chaque fichier est accompagné d'un fichier d'empreinte `.sha256`.
 
@@ -87,7 +87,7 @@ flatpak install --user \
   https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref
 ```
 
-L'identifiant Flatpak est `io.github.nitramo_yt.Github-Desktop`. Son socle, partagé avec de nombreuses autres applications, vient de Flathub.
+L'identifiant Flatpak est `io.github.nitramo_yt.Github-Desktop`. Son socle, partagé avec de nombreuses autres applications, vient de Flathub. Un canal propose le Flatpak à partir de la première de ses versions qui en comporte un : [la page du dépôt](https://packages-github-desktop.nitramo.fr/) indique quels canaux le proposent déjà.
 
 Le dépôt est signé avec la clé `0A63 E20B 6AF5 A6EC D45B D895 6B53 59F0 1735 4722`. [Sa page](https://packages-github-desktop.nitramo.fr/) explique comment passer ensuite à un autre canal.
 
@@ -117,7 +117,7 @@ Sur Ubuntu 24.04 et ses dérivées, l'AppImage demande une étape supplémentair
 
 Pour vérifier un téléchargement, placez son fichier `.sha256` à côté et exécutez `sha256sum -c <fichier>.sha256`.
 
-Un `.deb`, un `.rpm` ou une AppImage téléchargés ne se mettent pas à jour tout seuls. Pour mettre à jour, téléchargez la nouvelle version depuis le même lien et installez-la de la même façon, ou installez plutôt depuis le dépôt de paquets. Le fichier `.flatpak` fait exception : l'installer abonne au dépôt de paquets, sur le canal latest, ou beta pour une bêta, et `flatpak update` apporte ensuite les versions suivantes.
+Un `.deb`, un `.rpm` ou une AppImage téléchargés ne se mettent pas à jour tout seuls. Pour mettre à jour, téléchargez la nouvelle version depuis le même lien et installez-la de la même façon, ou installez plutôt depuis le dépôt de paquets. Le fichier `.flatpak` fait exception : l'installer abonne au dépôt de paquets, sur le canal latest, ou beta pour une bêta, et `flatpak update` apporte ensuite les versions suivantes. C'est pourquoi le lien Version stable ne le propose pas : sa page donne à la place la commande ci-dessus, qui suit le canal stable.
 
 ### Enregistrer vos identifiants
 
