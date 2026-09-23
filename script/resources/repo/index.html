@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GitHub Desktop for Linux — package repository</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --border: #d1d9e0;
+        --code-bg: #f6f8fa;
+        --accent: #0969da;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --fg: #e6edf3;
+          --muted: #9198a1;
+          --border: #3d444d;
+          --code-bg: #151b23;
+          --accent: #4493f8;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0 auto;
+        padding: 3rem 1rem 5rem;
+        max-width: 46rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans,
+          Helvetica, Arial, sans-serif;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.6rem;
+      }
+      h2 {
+        margin: 2.5rem 0 0.75rem;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 1.15rem;
+      }
+      p.lead {
+        margin: 0 0 2rem;
+        color: var(--muted);
+      }
+      pre {
+        margin: 0.75rem 0;
+        padding: 0.9rem 1rem;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--code-bg);
+        font-size: 0.85rem;
+        line-height: 1.5;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      }
+      a {
+        color: var(--accent);
+      }
+      .note {
+        padding: 0.75rem 1rem;
+        border-left: 3px solid var(--border);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>GitHub Desktop for Linux</h1>
+    <p class="lead">
+      Package repository for the maintained Linux builds. Add it once, then
+      upgrade with the rest of your system.
+    </p>
+
+    <h2>Debian, Ubuntu, Linux Mint, Pop!_OS</h2>
+    <pre><code>curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg
+
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+https://packages-github-desktop.nitramo.fr/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-desktop.list
+
+sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
+
+    <h2>Fedora, RHEL, Rocky, AlmaLinux</h2>
+    <pre><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
+
+sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+  https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
+
+sudo dnf install github-desktop</code></pre>
+
+    <h2>Preview builds</h2>
+    <p>
+      Builds made from upstream betas live in their own channel. They carry what
+      the next release will bring, and the bugs a beta comes with. Replace
+      <code>stable</code> with <code>beta</code> in the commands above to follow
+      it instead.
+    </p>
+    <p class="note">
+      Both channels install the same package name, so a machine follows one
+      channel at a time. Moving from beta back to stable means uninstalling
+      first, since the beta carries the higher version number.
+    </p>
+
+    <h2>Signing key</h2>
+    <pre><code>GitHub Desktop for Linux (NitramO) &lt;contact@nitramo.fr&gt;
+0A63 E20B 6AF5 A6EC D45B  D895 6B53 59F0 1735 4722</code></pre>
+    <p>
+      Every index in this repository is signed with that key. Your package
+      manager checks the signature on each update and refuses anything it cannot
+      verify.
+    </p>
+
+    <footer>
+      Sources, releases and issues:
+      <a href="https://github.com/NitramO-YT/Github-Desktop"
+        >github.com/NitramO-YT/Github-Desktop</a
+      >. This is an unofficial Linux port of
+      <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, not
+      affiliated with GitHub.
+    </footer>
+  </body>
+</html>

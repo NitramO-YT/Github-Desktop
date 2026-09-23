@@ -44,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.move.outputs.version }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
@@ -98,6 +100,7 @@ jobs:
           ls -l assets
 
       - name: Move the channel onto that version
+        id: move
         run: |
           # Releases are tagged with annotated tags, whose ref points at a tag
           # object rather than at a commit. Asking for the commit of the tag
@@ -105,6 +108,7 @@ jobs:
           # object and leaves the release creation to fail with a server error.
           commit="$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')"
           version="${SOURCE_TAG#release-}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
           if [ "$CHANNEL" = "stable" ]; then
             title="Stable: GitHub Desktop for Linux $version"
@@ -129,3 +133,14 @@ jobs:
             "${extra[@]}"
 
           echo "The $CHANNEL channel now points at $version." >> "$GITHUB_STEP_SUMMARY"
+
+  # The package repository follows the channels rather than the releases, so
+  # that what apt and dnf offer is always what the Stable and Beta links serve.
+  repository:
+    name: Update the package repository
+    needs: promote
+    uses: ./.github/workflows/publish-repo.yml
+    with:
+      version: ${{ needs.promote.outputs.version }}
+      channel: ${{ inputs.channel }}
+    secrets: inherit
