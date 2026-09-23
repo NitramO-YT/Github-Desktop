@@ -11,8 +11,7 @@
 # Input: a staging directory holding the packages to publish, one folder per
 # channel, which the release workflow fills by downloading published releases:
 #
-#   staging/deb/stable/*.deb   staging/rpm/stable/*.rpm
-#   staging/deb/beta/*.deb     staging/rpm/beta/*.rpm
+#   staging/deb/<channel>/*.deb   staging/rpm/<channel>/*.rpm
 #
 # Output: a tree ready to be copied to the bucket as-is.
 #
@@ -37,7 +36,9 @@ BASE_URL="https://packages-github-desktop.nitramo.fr"
 DEB_ARCH="amd64"
 RPM_ARCH="x86_64"
 
-CHANNELS="stable beta"
+# The three the README offers, with the same meaning: a version proven over
+# time, the newest final release as soon as it is out, and the preview builds.
+CHANNELS="stable latest beta"
 
 log() { printf '\n== %s\n' "$1"; }
 
@@ -68,8 +69,13 @@ test -s "$OUTPUT/gpg.key"
 # R2 serves objects and nothing else: without this file the address a user is
 # given in the README answers 404. It holds the commands to subscribe, so that
 # landing on the repository by itself is enough to know what to do with it.
+#
+# The icons come from the application rather than from a copy kept here, so the
+# page shows whichever artwork the build currently ships.
 log "Adding the landing page"
 cp "$HERE/resources/repo/index.html" "$OUTPUT/index.html"
+cp "$HERE/../app/static/linux/logos/128x128.png" "$OUTPUT/logo.png"
+cp "$HERE/../app/static/linux/logos/32x32.png" "$OUTPUT/favicon.png"
 
 build_deb_channel() {
   local channel="$1"
