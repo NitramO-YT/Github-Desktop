@@ -38,13 +38,6 @@ on:
         default: false
         type: boolean
 
-# Declared for the workflow rather than for the job that writes, because the
-# repository grants the token read access by default and a workflow calling
-# another one settles its permissions here. Leaving it on the job alone let the
-# release creation fall back to read, and fail with a 403.
-permissions:
-  contents: write
-
 jobs:
   promote:
     name: Point ${{ inputs.channel }} at ${{ inputs.version }}
@@ -143,24 +136,11 @@ jobs:
 
   # The package repository follows the channels rather than the releases, so
   # that what apt and dnf offer is always what the Stable and Beta links serve.
-  #
-  # Started through the API rather than with a uses: job. Calling a reusable
-  # workflow from here left the release creation above without write access,
-  # failing with a 403 on a token that had it the run before.
   repository:
-    name: Start the package repository update
+    name: Update the package repository
     needs: promote
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - name: Publish the channel that just moved
-        run: |
-          gh workflow run publish-repo.yml \
-            --ref "${{ github.ref_name }}" \
-            --field "version=${{ needs.promote.outputs.version }}" \
-            --field "channel=${{ inputs.channel }}"
-          echo "Publication of ${{ inputs.channel }} requested." >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/publish-repo.yml
+    with:
+      version: ${{ needs.promote.outputs.version }}
+      channel: ${{ inputs.channel }}
+    secrets: inherit
