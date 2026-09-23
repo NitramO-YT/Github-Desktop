@@ -112,7 +112,7 @@ jobs:
 
           if [ "$CHANNEL" = "stable" ]; then
             title="Stable: GitHub Desktop for Linux $version"
-            notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG), promoted once it had been in use without a known issue."
+            notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG)."
             extra=()
           else
             title="Beta: GitHub Desktop for Linux $version"
