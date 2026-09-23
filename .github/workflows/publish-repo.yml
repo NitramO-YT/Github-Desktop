@@ -1,0 +1,191 @@
+name: 'Publish the package repository'
+
+# Rebuilds packages-github-desktop.nitramo.fr from the versions each channel
+# currently holds, so that users upgrade with apt or dnf instead of downloading
+# a file by hand.
+#
+# It runs after a channel moves rather than after a release is published: the
+# repository then follows exactly what the Stable and Beta links serve, and the
+# waiting period before a version becomes stable protects apt users too.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version the channel now holds, without the release- prefix'
+        required: true
+        type: string
+      channel:
+        description: 'Channel that moved'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description:
+          'Version to put at the head of the channel, for instance 3.6.6-linux1'
+        required: true
+        type: string
+      channel:
+        description: 'Channel to update'
+        required: true
+        type: choice
+        options:
+          - stable
+          - beta
+
+env:
+  BUCKET: packages-github-desktop
+  # How many versions of each channel stay downloadable. Enough to step back
+  # from a regression without the bucket growing without end.
+  KEEP: 3
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.version }} to the ${{ inputs.channel }} channel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ inputs.version }}
+      CHANNEL: ${{ inputs.channel }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
+      # R2 is S3-compatible but has no regions; the CLI still insists on one.
+      AWS_DEFAULT_REGION: auto
+      # Recent AWS CLI releases add a streaming CRC checksum that R2 rejects.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            apt-utils createrepo-c rpm
+
+      # The bucket holds what each channel currently serves. Reading it back is
+      # what lets a run add one version and drop the oldest without having to
+      # work out, from the releases alone, which ones were ever promoted.
+      - name: Read what each channel holds today
+        run: |
+          aws s3 cp "s3://$BUCKET/state.json" state.json --endpoint-url "$AWS_ENDPOINT_URL" \
+            || echo '{"stable": [], "beta": []}' > state.json
+          cat state.json
+
+      - name: Work out the versions to publish
+        run: |
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs"
+
+            const state = JSON.parse(readFileSync("state.json", "utf8"))
+            const { CHANNEL, VERSION, KEEP } = process.env
+
+            const previous = state[CHANNEL] ?? []
+            const updated = [VERSION, ...previous.filter(v => v !== VERSION)]
+              .slice(0, Number(KEEP))
+
+            state[CHANNEL] = updated
+            for (const channel of ["stable", "beta"]) state[channel] ??= []
+
+            writeFileSync("state.json", JSON.stringify(state, null, 2) + "\n")
+            writeFileSync("versions.txt", updated.join("\n") + "\n")
+          '
+          echo "The $CHANNEL channel will serve:"
+          sed 's/^/  /' versions.txt
+
+      - name: Collect the packages of those versions
+        run: |
+          mkdir -p staging/deb/stable staging/deb/beta \
+                   staging/rpm/stable staging/rpm/beta
+
+          for channel in stable beta; do
+            node -e '
+              const state = require("./state.json")
+              process.stdout.write((state[process.argv[1]] ?? []).join("\n"))
+            ' "$channel" > list.txt
+
+            while read -r version; do
+              [ -n "$version" ] || continue
+              echo "Downloading $version for $channel"
+              gh release download "release-$version" \
+                --pattern '*.deb' --dir "staging/deb/$channel" --clobber
+              gh release download "release-$version" \
+                --pattern '*.rpm' --dir "staging/rpm/$channel" --clobber
+            done < list.txt
+          done
+
+          find staging -name '*.deb' -o -name '*.rpm' | sort
+
+      - name: Import the signing key
+        run: |
+          echo "${{ secrets.REPO_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          key="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+          echo "GPG_KEY=$key" >> "$GITHUB_ENV"
+          echo "Signing with $key"
+
+      - name: Build the repository
+        run: |
+          bash script/build-linux-repo.sh staging repo "$GPG_KEY"
+          cp state.json repo/state.json
+
+      # Packages first, indexes second. An index that names a package the bucket
+      # does not hold yet breaks every apt update made in between, where a
+      # package no index mentions yet is simply unused.
+      - name: Upload the packages
+        run: |
+          aws s3 sync repo/deb/pool "s3://$BUCKET/deb/pool" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --size-only
+          aws s3 sync repo/rpm "s3://$BUCKET/rpm" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --exclude '*/repodata/*' \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --size-only
+
+      - name: Upload the indexes
+        run: |
+          aws s3 sync repo/deb/dists "s3://$BUCKET/deb/dists" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --cache-control 'public, max-age=300' \
+            --delete
+          aws s3 sync repo/rpm "s3://$BUCKET/rpm" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --cache-control 'public, max-age=300' \
+            --exclude '*' --include '*/repodata/*' --include '*.repo'
+
+      # Last, so that a run that fails halfway leaves the bucket serving the
+      # versions it was serving before, and the next run starts from there.
+      - name: Drop the versions that left the channels, then record the state
+        run: |
+          aws s3 sync repo/deb/pool "s3://$BUCKET/deb/pool" \
+            --endpoint-url "$AWS_ENDPOINT_URL" --delete --size-only
+          aws s3 cp repo/index.html "s3://$BUCKET/index.html" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --content-type 'text/html; charset=utf-8' \
+            --cache-control 'public, max-age=300'
+          aws s3 cp repo/gpg.key "s3://$BUCKET/gpg.key" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --content-type 'text/plain; charset=utf-8' \
+            --cache-control 'public, max-age=300'
+          aws s3 cp repo/state.json "s3://$BUCKET/state.json" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --cache-control 'no-store'
+
+      - name: Say what the repository now serves
+        run: |
+          {
+            echo "### Package repository updated"
+            echo
+            echo "The **$CHANNEL** channel now serves:"
+            echo
+            sed 's/^/- /' versions.txt
+            echo
+            echo "<https://packages-github-desktop.nitramo.fr/>"
+          } >> "$GITHUB_STEP_SUMMARY"
