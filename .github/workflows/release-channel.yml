@@ -1,9 +1,9 @@
 name: 'Release channel'
 
 # The Stable and Beta links in the README never change, so each one is a
-# release of its own, tagged "stable" or "beta", holding a copy of the files of
-# the version it currently points at. This workflow moves one of those two
-# pointers onto a version that has already been published.
+# release of its own, tagged "stable" or "beta", holding a copy of the files and
+# of the notes of the version it currently points at. This workflow moves one
+# of those two pointers onto a version that has already been published.
 #
 # The files are copied, never rebuilt, so that what a channel serves is exactly
 # what was tested under its version number.
@@ -120,6 +120,20 @@ jobs:
             extra=(--prerelease)
           fi
 
+          # The notes of the version follow below a rule, so that the release of
+          # the channel says what it holds without a click through. They are
+          # copied as they stand when this workflow runs: an edit made to them
+          # later shows here once the workflow runs again. The blank line before
+          # the rule matters, as a --- right under a paragraph turns that
+          # paragraph into a heading.
+          body="$(gh release view "$SOURCE_TAG" --json body --jq '.body')"
+          {
+            echo "$notes"
+            if [ -n "$body" ]; then
+              printf '\n---\n\n%s\n' "$body"
+            fi
+          } > notes.md
+
           # The tag goes first because it is the one step GitHub may refuse, and
           # a refusal here leaves the channel serving what it served before.
           # GitHub lets the workflow token tag a commit only while each of its
@@ -147,7 +161,7 @@ jobs:
           gh release create "$CHANNEL" assets/* \
             --verify-tag \
             --title "$title" \
-            --notes "$notes" \
+            --notes-file notes.md \
             --latest=false \
             "${extra[@]}"
 

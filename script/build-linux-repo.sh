@@ -13,6 +13,10 @@
 #
 #   staging/deb/<channel>/*.deb   staging/rpm/<channel>/*.rpm
 #
+# along with what the landing page lists: state.json, the checksum files of
+# each release in staging/checksums/, and the name and size of its files in
+# staging/assets/<version>.json.
+#
 # Output: a tree ready to be copied to the bucket as-is.
 #
 # Usage: build-linux-repo.sh <staging-dir> <output-dir> <gpg-key-id>
@@ -172,11 +176,12 @@ done
 # to do with it.
 #
 # Rendered rather than copied, because it names the version each channel
-# serves, which only the tree just built knows. The icons come from the
-# application, so the page shows whichever artwork the build currently ships.
+# serves, with the size and checksum of each file, which only the staging
+# directory knows. The icons come from the application, so the page shows
+# whichever artwork the build currently ships.
 log "Rendering the landing page"
 node "$HERE/render-repo-page.mjs" \
-  "$HERE/resources/repo/index.html" "$OUTPUT" "$STAGING/state.json" "$OUTPUT/index.html"
+  "$HERE/resources/repo/index.html" "$STAGING" "$OUTPUT/index.html"
 cp "$HERE/../app/static/linux/logos/128x128.png" "$OUTPUT/logo.png"
 cp "$HERE/../app/static/linux/logos/32x32.png" "$OUTPUT/favicon.png"
 

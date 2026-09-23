@@ -140,10 +140,14 @@ jobs:
           echo "The $CHANNEL channel will serve:"
           sed 's/^/  /' versions.txt
 
+      # Besides the packages, each version brings its checksum files and the
+      # list of its files with their size: the landing page shows both, the
+      # AppImage included, although only the packages are served from here.
       - name: Collect the packages of those versions
         run: |
           mkdir -p staging/deb/stable staging/deb/latest staging/deb/beta \
-                   staging/rpm/stable staging/rpm/latest staging/rpm/beta
+                   staging/rpm/stable staging/rpm/latest staging/rpm/beta \
+                   staging/checksums staging/assets
 
           for channel in stable latest beta; do
             # The trailing newline matters: read drops a last line that has
@@ -161,6 +165,10 @@ jobs:
                 --pattern '*.deb' --dir "staging/deb/$channel" --clobber
               gh release download "release-$version" \
                 --pattern '*.rpm' --dir "staging/rpm/$channel" --clobber
+              gh release download "release-$version" \
+                --pattern '*.sha256' --dir staging/checksums --clobber
+              gh release view "release-$version" --json assets \
+                --jq '[.assets[] | {name, size}]' > "staging/assets/$version.json"
             done < list.txt
           done
 
@@ -193,6 +201,18 @@ jobs:
             if (missing > 0) process.exit(1)
             console.log("Every listed version has its packages.")
           '
+
+      # The repository serves copies of the release packages. One that differs
+      # from the file its release published, damaged on the way or replaced,
+      # stops the publication here instead of being signed into an index.
+      - name: Check the packages are the files that were released
+        run: |
+          for package in staging/deb/*/*.deb staging/rpm/*/*.rpm; do
+            [ -e "$package" ] || continue
+            checksum="$GITHUB_WORKSPACE/staging/checksums/$(basename "$package").sha256"
+            (cd "$(dirname "$package")" && sha256sum --check --quiet "$checksum")
+          done
+          echo "Every package matches the checksum published with its release."
 
       - name: Import the signing key
         run: |
