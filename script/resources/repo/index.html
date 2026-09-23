@@ -1,36 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GitHub Desktop for Linux: package repository</title>
+    <title>{{page.title}}</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <!--
+      This page holds no words of its own. Its texts live in locales/, one file
+      per language, and script/render-repo-page.mjs writes each of them here in
+      every language, wherever a key sits between double braces. The renderer
+      also sets the lang and dir of the html element, and replaces each comment
+      that names a part it generates.
+    -->
+    <!-- language-data -->
+    <!--
       The language is settled here, before the body is drawn, so that the page
-      never shows one language and then switches to the other. A choice made
-      with the switch wins, then the language of the browser; English is what
-      remains, and what a browser without JavaScript shows.
+      never shows one language and then switches to another. A choice made
+      with the switch wins, then the first language the browser asks for that
+      the page offers; the default language is what remains, and what a
+      browser without JavaScript shows.
     -->
     <script>
       ;(function () {
-        var lang = 'en'
-        var browser =
-          (navigator.languages && navigator.languages[0]) ||
-          navigator.language ||
-          ''
-        if (/^fr(-|$)/i.test(browser)) lang = 'fr'
+        var data = JSON.parse(
+          document.getElementById('page-languages').textContent
+        )
+        var root = document.documentElement
+
+        /**
+         * The language of the page that a tag such as fr-CA asks for: the
+         * same tag, else the first one of the same language, else none.
+         */
+        function offered(tag) {
+          if (typeof tag !== 'string' || tag === '') return null
+          var wanted = tag.toLowerCase()
+          var close = null
+          for (var i = 0; i < data.order.length; i++) {
+            var code = data.order[i].toLowerCase()
+            if (code === wanted) return data.order[i]
+            if (close === null && code.split('-')[0] === wanted.split('-')[0]) {
+              close = data.order[i]
+            }
+          }
+          return close
+        }
+
+        function apply(lang) {
+          root.setAttribute('data-lang', lang)
+          root.lang = lang
+          root.dir = data.languages[lang].dir
+          document.title = data.languages[lang].title
+        }
+
+        var lang = data.default
+        var preferred =
+          navigator.languages && navigator.languages.length
+            ? navigator.languages
+            : [navigator.language]
+        for (var i = 0; i < preferred.length; i++) {
+          var match = offered(preferred[i])
+          if (match !== null) {
+            lang = match
+            break
+          }
+        }
         try {
           var saved = localStorage.getItem('lang')
-          if (saved === 'en' || saved === 'fr') lang = saved
+          if (saved !== null && offered(saved) === saved) lang = saved
         } catch (e) {
           // Storage can be refused, in a private window for instance: the
-          // language of the browser then decides.
+          // languages of the browser then decide.
         }
-        document.documentElement.setAttribute('data-lang', lang)
-        document.documentElement.lang = lang
-        if (lang === 'fr') {
-          document.title = 'GitHub Desktop pour Linux : dépôt de paquets'
-        }
+        apply(lang)
+
+        // The script at the end of the page builds the switch on these.
+        window.pageLanguages = { data: data, apply: apply }
       })()
     </script>
     <style>
@@ -58,11 +102,6 @@
           --pick-bg: #151b23;
           --inline-code-bg: #656c7633;
         }
-      }
-      /* Every text exists in both languages; only the chosen one is shown. */
-      html:not([data-lang='fr']) body [lang='fr'],
-      html[data-lang='fr'] body [lang='en'] {
-        display: none !important;
       }
       * {
         box-sizing: border-box;
@@ -116,10 +155,13 @@
         margin: 0;
         color: var(--muted);
       }
+      /* Sides are named by where a line starts and ends rather than left and
+         right, here and below, so that a language written right to left
+         mirrors the page. */
       .lang-switch {
         display: inline-flex;
         align-self: flex-start;
-        margin-left: auto;
+        margin-inline-start: auto;
         border: 1px solid var(--border);
         border-radius: 6px;
         overflow: hidden;
@@ -134,7 +176,7 @@
         cursor: pointer;
       }
       .lang-switch button + button {
-        border-left: 1px solid var(--border);
+        border-inline-start: 1px solid var(--border);
       }
       .lang-switch button[aria-pressed='true'] {
         background: var(--accent);
@@ -175,6 +217,13 @@
       }
       code {
         font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+      }
+      /* Commands, paths and checksums read left to right, whatever the
+         direction of the language around them. */
+      pre,
+      code {
+        direction: ltr;
+        unicode-bidi: isolate;
       }
       /* Code within a sentence or a table cell gets a light background, as on
          GitHub, so that it reads as code next to the framed checksums. */
@@ -245,7 +294,7 @@
       td {
         padding: 0.6rem 0.7rem;
         border: 1px solid var(--border);
-        text-align: left;
+        text-align: start;
         vertical-align: top;
       }
       th {
@@ -332,7 +381,8 @@
         align-items: center;
         gap: 0.5rem;
         margin: 0.25rem 0 0;
-        padding: 0.35rem 0.45rem 0.35rem 0.8rem;
+        padding-block: 0.35rem;
+        padding-inline: 0.8rem 0.45rem;
         border: 1px solid var(--border);
         border-radius: 6px;
         background: var(--code-bg);
@@ -357,7 +407,7 @@
       .note {
         margin: 1rem 0;
         padding: 0.7rem 1rem;
-        border-left: 3px solid var(--border);
+        border-inline-start: 3px solid var(--border);
         color: var(--muted);
         font-size: 0.9rem;
       }
@@ -369,260 +419,125 @@
         font-size: 0.85rem;
       }
     </style>
+    <!-- language-rules -->
   </head>
   <body>
     <header>
       <img src="/logo.png" alt="" width="64" height="64" />
       <div class="intro">
-        <h1>
-          <span lang="en">GitHub Desktop for Linux</span
-          ><span lang="fr">GitHub Desktop pour Linux</span>
-        </h1>
-        <p lang="en">
-          Package repository for the maintained Linux builds. Add it once, then
-          upgrade with the rest of your system.
-        </p>
-        <p lang="fr">
-          Dépôt de paquets des versions Linux maintenues. Ajoutez-le une fois,
-          puis mettez à jour avec le reste de votre système.
-        </p>
+        <h1>{{header.title}}</h1>
+        <p>{{header.intro}}</p>
       </div>
     </header>
 
-    <h2>
-      <span lang="en">Choose a channel</span
-      ><span lang="fr">Choisir un canal</span>
-    </h2>
-    <p lang="en">
-      Pick one. Your package manager then keeps you on the newest version of
-      that channel by itself, with no download to repeat.
-    </p>
-    <p lang="fr">
-      Choisissez-en un. Votre gestionnaire de paquets vous garde ensuite de
-      lui-même sur la version la plus récente de ce canal, sans téléchargement à
-      refaire.
-    </p>
+    <h2>{{channels.heading}}</h2>
+    <p>{{channels.intro}}</p>
     <table>
       <thead>
         <tr>
-          <th><span lang="en">Channel</span><span lang="fr">Canal</span></th>
-          <th>
-            <span lang="en">What it serves</span
-            ><span lang="fr">Ce qu'il fournit</span>
-          </th>
-          <th>
-            <span lang="en">Choose it if</span
-            ><span lang="fr">Choisissez-le si</span>
-          </th>
+          <th>{{column.channel}}</th>
+          <th>{{column.serves}}</th>
+          <th>{{column.chooseIf}}</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td><code>stable</code></td>
-          <td>
-            <span lang="en"
-              >A version that has been in use for a while without a known issue.
-              Promoted by hand, never on the day it is released.</span
-            ><span lang="fr"
-              >Une version utilisée depuis un certain temps sans problème connu.
-              Promue à la main, jamais le jour de sa sortie.</span
-            >
-          </td>
-          <td>
-            <span lang="en">you want the safest option. Start here.</span
-            ><span lang="fr"
-              >vous voulez l'option la plus sûre. Commencez par là.</span
-            >
-          </td>
+          <td>{{channels.stable.serves}}</td>
+          <td>{{channels.stable.chooseIf}}</td>
         </tr>
         <tr>
           <td><code>latest</code></td>
-          <td>
-            <span lang="en"
-              >The newest release, as soon as it is published. It has not been
-              proven yet.</span
-            ><span lang="fr"
-              >La version la plus récente, dès sa publication. Elle n'a pas
-              encore fait ses preuves.</span
-            >
-          </td>
-          <td>
-            <span lang="en">you want new fixes without waiting.</span
-            ><span lang="fr"
-              >vous voulez les nouveaux correctifs sans attendre.</span
-            >
-          </td>
+          <td>{{channels.latest.serves}}</td>
+          <td>{{channels.latest.chooseIf}}</td>
         </tr>
         <tr>
           <td><code>beta</code></td>
-          <td>
-            <span lang="en"
-              >Built from the official beta versions: what the next release will
-              bring, and the bugs a beta comes with.</span
-            ><span lang="fr"
-              >Construite à partir des versions bêta officielles&nbsp;: ce
-              qu'apportera la prochaine version, avec les bugs qu'une bêta
-              comporte.</span
-            >
-          </td>
-          <td>
-            <span lang="en">you want to test ahead and report what breaks.</span
-            ><span lang="fr"
-              >vous voulez tester en avance et signaler ce qui casse.</span
-            >
-          </td>
+          <td>{{channels.beta.serves}}</td>
+          <td>{{channels.beta.chooseIf}}</td>
         </tr>
       </tbody>
     </table>
-    <p class="note" lang="en">
-      Most of the time <code>stable</code> and <code>latest</code> hold the same
-      version. They differ after a new release, until it has been proven.
-    </p>
-    <p class="note" lang="fr">
-      La plupart du temps, les canaux <code>stable</code> et
-      <code>latest</code> contiennent la même version. Ils diffèrent après une
-      nouvelle sortie, jusqu'à ce que celle-ci ait fait ses preuves.
-    </p>
+    <p class="note">{{channels.note}}</p>
 
     <h2>Debian, Ubuntu, Linux Mint, Pop!_OS</h2>
-    <p lang="en">Add the signing key once, whichever channel you pick:</p>
-    <p lang="fr">
-      Ajoutez la clé de signature une seule fois, quel que soit le canal
-      choisi&nbsp;:
-    </p>
-    <pre><code>curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
+    <p>{{install.deb.key}}</p>
+    <pre
+      translate="no"
+    ><code>curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg</code></pre>
 
-    <h3>
-      <span lang="en">Then, for the stable channel</span
-      ><span lang="fr">Puis, pour le canal stable</span>
-    </h3>
-    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+    <h3>{{install.stable}}</h3>
+    <pre
+      translate="no"
+    ><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
-    <h3>
-      <span lang="en">For the latest channel</span
-      ><span lang="fr">Pour le canal latest</span>
-    </h3>
-    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+    <h3>{{install.latest}}</h3>
+    <pre
+      translate="no"
+    ><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb latest main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
-    <h3>
-      <span lang="en">For the beta channel</span
-      ><span lang="fr">Pour le canal beta</span>
-    </h3>
-    <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+    <h3>{{install.beta}}</h3>
+    <pre
+      translate="no"
+    ><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb beta main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
     <h2>Fedora, RHEL, Rocky, AlmaLinux</h2>
-    <p lang="en">Import the signing key once, whichever channel you pick:</p>
-    <p lang="fr">
-      Importez la clé de signature une seule fois, quel que soit le canal
-      choisi&nbsp;:
-    </p>
-    <pre><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key</code></pre>
+    <p>{{install.rpm.key}}</p>
+    <pre
+      translate="no"
+    ><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key</code></pre>
 
-    <h3>
-      <span lang="en">Then, for the stable channel</span
-      ><span lang="fr">Puis, pour le canal stable</span>
-    </h3>
-    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+    <h3>{{install.stable}}</h3>
+    <pre
+      translate="no"
+    ><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
-    <h3>
-      <span lang="en">For the latest channel</span
-      ><span lang="fr">Pour le canal latest</span>
-    </h3>
-    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+    <h3>{{install.latest}}</h3>
+    <pre
+      translate="no"
+    ><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/latest/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
-    <h3>
-      <span lang="en">For the beta channel</span
-      ><span lang="fr">Pour le canal beta</span>
-    </h3>
-    <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+    <h3>{{install.beta}}</h3>
+    <pre
+      translate="no"
+    ><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/beta/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
     <!-- downloads -->
 
-    <h2>
-      <span lang="en">Changing channel later</span
-      ><span lang="fr">Changer de canal plus tard</span>
-    </h2>
-    <p lang="en">
-      Replace the file you created and update: on Debian and friends
-      <code>/etc/apt/sources.list.d/github-desktop.list</code>, on Fedora and
-      friends <code>/etc/yum.repos.d/github-desktop.repo</code>. There is one
-      file and one package name, so a machine follows one channel at a time.
-    </p>
-    <p lang="fr">
-      Remplacez le fichier que vous avez créé, puis mettez à jour&nbsp;: sur
-      Debian et ses dérivées
-      <code>/etc/apt/sources.list.d/github-desktop.list</code>, sur Fedora et
-      ses dérivées <code>/etc/yum.repos.d/github-desktop.repo</code>. Il n'y a
-      qu'un fichier et qu'un nom de paquet&nbsp;: une machine suit donc un seul
-      canal à la fois.
-    </p>
-    <p class="note" lang="en">
-      Moving down a channel, from beta to stable for instance, means removing
-      the package first: the version you already have is the higher one, and
-      package managers refuse to go backwards on their own.
-    </p>
-    <p class="note" lang="fr">
-      Descendre d'un canal, de beta vers stable par exemple, oblige à
-      désinstaller d'abord le paquet&nbsp;: la version déjà installée est la
-      plus élevée, et les gestionnaires de paquets refusent de revenir en
-      arrière d'eux-mêmes.
-    </p>
+    <h2>{{changing.heading}}</h2>
+    <p>{{changing.text}}</p>
+    <p class="note">{{changing.note}}</p>
 
-    <h2>
-      <span lang="en">Signing key</span><span lang="fr">Clé de signature</span>
-    </h2>
-    <pre><code>GitHub Desktop for Linux (NitramO) &lt;contact@nitramo.fr&gt;
+    <h2>{{key.heading}}</h2>
+    <pre
+      translate="no"
+    ><code>GitHub Desktop for Linux (NitramO) &lt;contact@nitramo.fr&gt;
 0A63 E20B 6AF5 A6EC D45B  D895 6B53 59F0 1735 4722</code></pre>
-    <p lang="en">
-      Every index in this repository is signed with that key. Your package
-      manager checks the signature on each update and refuses anything it cannot
-      verify.
-    </p>
-    <p lang="fr">
-      Chaque index de ce dépôt est signé avec cette clé. Votre gestionnaire de
-      paquets vérifie la signature à chaque mise à jour et refuse tout ce qu'il
-      ne peut pas vérifier.
-    </p>
+    <p>{{key.text}}</p>
 
-    <footer>
-      <span lang="en"
-        >Sources, releases and issues:
-        <a href="https://github.com/NitramO-YT/Github-Desktop"
-          >github.com/NitramO-YT/Github-Desktop</a
-        >. This is an unofficial Linux port of
-        <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, not
-        affiliated with GitHub.</span
-      ><span lang="fr"
-        >Sources, versions et signalements&nbsp;:
-        <a href="https://github.com/NitramO-YT/Github-Desktop"
-          >github.com/NitramO-YT/Github-Desktop</a
-        >. Ceci est un portage Linux non officiel de
-        <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, sans
-        lien avec GitHub.</span
-      >
-    </footer>
+    <footer>{{footer}}</footer>
 
     <!--
       Everything below only adds controls. They are created here rather than
@@ -631,11 +546,9 @@ sudo dnf install github-desktop</code></pre>
     -->
     <script>
       ;(function () {
+        var languages = window.pageLanguages
+        var data = languages.data
         var root = document.documentElement
-        var TITLES = {
-          en: 'GitHub Desktop for Linux: package repository',
-          fr: 'GitHub Desktop pour Linux : dépôt de paquets',
-        }
 
         // Filled with currentColor, so that each icon takes the colour the
         // stylesheet gives its button. Decorative: the label names the button.
@@ -646,52 +559,80 @@ sudo dnf install github-desktop</code></pre>
         }
 
         /**
-         * A button whose label exists in both languages, like the page. The
-         * label sits in a span of its own, so that changing it leaves the icon
-         * in place.
+         * An element holding a text, marked with the language it is written
+         * in: for a translation that is missing, English rather than the
+         * language of the page.
          */
-        function button(icon, en, fr) {
+        function written(tag, text) {
+          var element = document.createElement(tag)
+          element.lang = text.lang
+          element.dir = text.dir
+          element.textContent = text.text
+          return element
+        }
+
+        /** Wraps what the label says in one language of the page. */
+        function variant(page, content) {
+          var span = document.createElement('span')
+          span.setAttribute('data-variant', page)
+          content.forEach(function (node) {
+            span.appendChild(node)
+          })
+          return span
+        }
+
+        /**
+         * A button whose label exists in every language of the page, like
+         * the texts written by the renderer. The label sits in a span of its
+         * own, so that changing it leaves the icon in place.
+         */
+        function button(icon, key) {
           var b = document.createElement('button')
           b.type = 'button'
           if (icon) b.insertAdjacentHTML('afterbegin', ICONS[icon])
           var label = document.createElement('span')
           label.className = 'label'
           b.appendChild(label)
-          setLabel(b, en, fr)
+          setLabel(b, key)
           return b
         }
 
-        function setLabel(b, en, fr) {
+        function setLabel(b, key) {
           var label = b.querySelector('.label')
           label.textContent = ''
-          ;[
-            ['en', en],
-            ['fr', fr],
-          ].forEach(function (pair) {
-            var span = document.createElement('span')
-            span.lang = pair[0]
-            span.textContent = pair[1]
-            label.appendChild(span)
+          data.order.forEach(function (page) {
+            var text = data.languages[page].ui[key]
+            label.appendChild(variant(page, [written('span', text)]))
           })
         }
 
         // The switch sits in the header, next to the title. Each choice is
         // named in the language of the page and in its own, so that someone
-        // who reads only the other language still recognises it. The buttons
-        // carry no lang attribute themselves: the rule that hides the other
-        // language would hide the button that brings it back.
+        // who reads only the language it leads to still recognises it. The
+        // buttons carry no data-variant themselves: the rule that hides the
+        // other languages would hide the button that brings one back.
         var switcher = document.createElement('div')
         switcher.className = 'lang-switch'
         switcher.setAttribute('role', 'group')
-        switcher.setAttribute('aria-label', 'Language / Langue')
-        var choices = [
-          ['en', '🇬🇧 English', '🇬🇧 Anglais - English'],
-          ['fr', '🇫🇷 French - Français', '🇫🇷 Français'],
-        ].map(function (choice) {
-          var b = button(null, choice[1], choice[2])
-          b.dataset.choice = choice[0]
+        var choices = data.order.map(function (code) {
+          var language = data.languages[code]
+          var b = document.createElement('button')
+          b.type = 'button'
+          b.dataset.choice = code
+          data.order.forEach(function (page) {
+            var content = []
+            if (language.flag) {
+              content.push(document.createTextNode(language.flag + ' '))
+            }
+            if (code !== page) {
+              content.push(written('span', data.languages[page].names[code]))
+              content.push(document.createTextNode(' - '))
+            }
+            content.push(written('span', language.name))
+            b.appendChild(variant(page, content))
+          })
           b.addEventListener('click', function () {
-            setLanguage(choice[0])
+            setLanguage(code)
           })
           switcher.appendChild(b)
           return b
@@ -699,6 +640,8 @@ sudo dnf install github-desktop</code></pre>
         document.querySelector('header').appendChild(switcher)
 
         function showChoice(lang) {
+          var name = data.languages[lang].ui.language
+          switcher.setAttribute('aria-label', name.text)
           choices.forEach(function (b) {
             b.setAttribute('aria-pressed', String(b.dataset.choice === lang))
           })
@@ -706,9 +649,7 @@ sudo dnf install github-desktop</code></pre>
 
         /** Only a choice made with the switch is remembered. */
         function setLanguage(lang) {
-          root.setAttribute('data-lang', lang)
-          root.lang = lang
-          document.title = TITLES[lang]
+          languages.apply(lang)
           showChoice(lang)
           try {
             localStorage.setItem('lang', lang)
@@ -717,7 +658,7 @@ sudo dnf install github-desktop</code></pre>
           }
         }
 
-        showChoice(root.getAttribute('data-lang') === 'fr' ? 'fr' : 'en')
+        showChoice(root.getAttribute('data-lang'))
 
         function selectContents(code) {
           var range = document.createRange()
@@ -760,16 +701,16 @@ sudo dnf install github-desktop</code></pre>
           copy.addEventListener('click', function () {
             copyText(code.textContent, code).then(function (copied) {
               if (copied) {
-                setLabel(copy, 'Copied', 'Copié')
+                setLabel(copy, 'copied')
               } else {
                 // Nothing reached the clipboard: the text is left selected so
                 // that the keyboard can finish the job.
                 selectContents(code)
-                setLabel(copy, 'Press Ctrl+C', 'Appuyez sur Ctrl+C')
+                setLabel(copy, 'pressCtrlC')
               }
               clearTimeout(reset)
               reset = setTimeout(function () {
-                setLabel(copy, 'Copy', 'Copier')
+                setLabel(copy, 'copy')
               }, 2000)
             })
           })
@@ -777,7 +718,7 @@ sudo dnf install github-desktop</code></pre>
 
         // A checksum listed on its own gets a copy button of its own.
         document.querySelectorAll('code.hash').forEach(function (code) {
-          var copy = button('copy', 'Copy', 'Copier')
+          var copy = button('copy', 'copy')
           attachCopy(copy, code)
           code.parentNode.appendChild(copy)
         })
@@ -789,8 +730,8 @@ sudo dnf install github-desktop</code></pre>
           var actions = document.createElement('div')
           actions.className = 'code-actions'
 
-          var copy = button('copy', 'Copy', 'Copier')
-          var select = button('select', 'Select all', 'Tout sélectionner')
+          var copy = button('copy', 'copy')
+          var select = button('select', 'selectAll')
           attachCopy(copy, code)
           select.addEventListener('click', function () {
             selectContents(code)

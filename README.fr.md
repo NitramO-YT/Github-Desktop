@@ -146,6 +146,8 @@ Ce fork est maintenu par un seul bénévole. Si personne n'a répondu à votre i
 
 Les contributions à la prise en charge de Linux (empaquetage, intégration au bureau, correctifs propres à Linux) sont les bienvenues ici : ouvrez une issue ou une pull request sur ce dépôt.
 
+La page du dépôt de paquets peut être traduite dans d'autres langues, avec un seul fichier par langue : [`script/resources/repo/locales/`](./script/resources/repo/locales/) explique comment.
+
 Tout le reste, comme les nouvelles fonctionnalités ou les correctifs qui concernent toutes les plateformes, relève du [projet officiel](https://github.com/desktop/desktop). Son document [CONTRIBUTING.md](./.github/CONTRIBUTING.md) vous aidera à préparer votre environnement et à vous familiariser avec le code source, et le dossier [documentation](docs/) contient d'autres ressources.
 
 ## Compiler Desktop
