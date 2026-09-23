@@ -105,9 +105,12 @@ jobs:
                    staging/rpm/stable staging/rpm/beta
 
           for channel in stable beta; do
+            # The trailing newline matters: read drops a last line that has
+            # none, which silently downloads nothing at all.
             node -e '
               const state = require("./state.json")
-              process.stdout.write((state[process.argv[1]] ?? []).join("\n"))
+              const versions = state[process.argv[1]] ?? []
+              process.stdout.write(versions.map(v => v + "\n").join(""))
             ' "$channel" > list.txt
 
             while read -r version; do
@@ -121,6 +124,34 @@ jobs:
           done
 
           find staging -name '*.deb' -o -name '*.rpm' | sort
+
+      # Everything downstream reads the staging directory and would otherwise
+      # fail several steps later, on a path that does not exist, saying nothing
+      # about the version that never arrived.
+      - name: Check every version listed was collected
+        run: |
+          node -e '
+            const { readdirSync, existsSync } = require("node:fs")
+            const state = require("./state.json")
+            let missing = 0
+
+            for (const channel of ["stable", "beta"]) {
+              for (const version of state[channel] ?? []) {
+                for (const [kind, ext] of [["deb", ".deb"], ["rpm", ".rpm"]]) {
+                  const dir = `staging/${kind}/${channel}`
+                  const found = existsSync(dir)
+                    && readdirSync(dir).some(f => f.endsWith(ext) && f.includes(version))
+                  if (!found) {
+                    console.error(`Missing the ${ext} of ${version} for ${channel}`)
+                    missing++
+                  }
+                }
+              }
+            }
+
+            if (missing > 0) process.exit(1)
+            console.log("Every listed version has its packages.")
+          '
 
       - name: Import the signing key
         run: |
