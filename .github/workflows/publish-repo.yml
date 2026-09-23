@@ -13,7 +13,8 @@ on:
   workflow_call:
     inputs:
       version:
-        description: 'Version the channel now holds, without the release- prefix'
+        description:
+          'Version the channel now holds, without the release- prefix'
         required: true
         type: string
       channel:
@@ -53,9 +54,18 @@ jobs:
     # publishing it would otherwise send the channel round again. Only the
     # release- tags name a version, so they are the ones worth reacting to.
     if: >-
-      github.event_name != 'release' ||
-      (github.event.release.prerelease == false &&
-      startsWith(github.event.release.tag_name, 'release-'))
+      github.event_name != 'release' || (github.event.release.prerelease ==
+      false && startsWith(github.event.release.tag_name, 'release-'))
+    # Each run reads state.json, rebuilds the repository from it and writes it
+    # back, so two runs at the same time would each write a state missing the
+    # channel the other one moved, and nothing would say so. Runs therefore go
+    # one at a time, in the order they arrive. Without a queue GitHub keeps a
+    # single run waiting and cancels it when a third one comes. Declared on the
+    # job rather than on the workflow, so that it also holds when a promotion
+    # calls this workflow.
+    concurrency:
+      group: package-repository
+      queue: max
     runs-on: ubuntu-latest
     permissions:
       contents: read
