@@ -62,7 +62,29 @@ Chaque version fournit, pour x86_64 :
 
 Chaque fichier est accompagné d'un fichier d'empreinte `.sha256`.
 
-### Installation
+### Installer depuis le dépôt de paquets
+
+Les paquets sont aussi publiés dans un dépôt APT et RPM, <https://packages-github-desktop.nitramo.fr/>. Installé depuis ce dépôt, GitHub Desktop est mis à jour par `apt` ou `dnf` avec le reste du système. Le dépôt propose les trois mêmes canaux que les liens ci-dessus : les commandes ci-dessous suivent le canal stable, et remplacer `stable` par `latest` ou `beta` permet d'en suivre un autre.
+
+```sh
+# Debian, Ubuntu et leurs dérivées
+curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+https://packages-github-desktop.nitramo.fr/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-desktop.list
+sudo apt update && sudo apt install github-desktop
+
+# Fedora, RHEL et leurs dérivées
+sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
+sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+  https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
+sudo dnf install github-desktop
+```
+
+Le dépôt est signé avec la clé `0A63 E20B 6AF5 A6EC D45B D895 6B53 59F0 1735 4722`. [Sa page](https://packages-github-desktop.nitramo.fr/) explique comment passer ensuite à un autre canal.
+
+### Installer un fichier téléchargé
 
 Téléchargez le fichier correspondant à votre distribution depuis l'un des liens ci-dessus, puis :
 
@@ -85,7 +107,7 @@ Sur Ubuntu 24.04 et ses dérivées, l'AppImage demande une étape supplémentair
 
 Pour vérifier un téléchargement, placez son fichier `.sha256` à côté et exécutez `sha256sum -c <fichier>.sha256`.
 
-Les mises à jour ne s'installent pas automatiquement. Pour mettre à jour, téléchargez la nouvelle version depuis le même lien et installez-la de la même façon.
+Un fichier téléchargé ne se met pas à jour tout seul. Pour mettre à jour, téléchargez la nouvelle version depuis le même lien et installez-la de la même façon, ou installez plutôt depuis le dépôt de paquets.
 
 ### Enregistrer vos identifiants
 

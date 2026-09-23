@@ -62,7 +62,29 @@ Each release provides, for x86_64:
 
 Each file comes with a `.sha256` checksum file.
 
-### Installation
+### Installing from the package repository
+
+The packages are also published in an APT and RPM repository, <https://packages-github-desktop.nitramo.fr/>. Installed from it, GitHub Desktop is updated by `apt` or `dnf` along with the rest of the system. The repository offers the same three channels as the links above: the commands below follow the stable channel, and replacing `stable` with `latest` or `beta` follows another one.
+
+```sh
+# Debian, Ubuntu and their derivatives
+curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
+https://packages-github-desktop.nitramo.fr/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-desktop.list
+sudo apt update && sudo apt install github-desktop
+
+# Fedora, RHEL and their derivatives
+sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
+sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
+  https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
+sudo dnf install github-desktop
+```
+
+The repository is signed with the key `0A63 E20B 6AF5 A6EC D45B D895 6B53 59F0 1735 4722`. [Its page](https://packages-github-desktop.nitramo.fr/) explains how to move to another channel later.
+
+### Installing a downloaded file
 
 Download the file for your distribution from one of the links above, then:
 
@@ -85,7 +107,7 @@ On Ubuntu 24.04 and its derivatives, the AppImage needs one extra step before it
 
 To check a download, put its `.sha256` file next to it and run `sha256sum -c <file>.sha256`.
 
-Updates are not installed automatically. To update, download the new version from the same link and install it the same way.
+A downloaded file is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead.
 
 ### Saving your credentials
 
