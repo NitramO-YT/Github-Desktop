@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  What software centres, Discover and GNOME Software among them, show about
+  the application. script/build-flatpak.sh fills in the release below with the
+  version it builds and the day it builds it.
+-->
+<component type="desktop-application">
+  <id>io.github.nitramo_yt.Github-Desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>GitHub Desktop</name>
+  <summary>Simple collaboration from your desktop</summary>
+  <developer id="io.github.nitramo_yt">
+    <name>NitramO-YT</name>
+  </developer>
+
+  <description>
+    <p>A community-maintained Linux build of GitHub Desktop, kept up to date with each official release. It continues the Linux work of shiftkey/desktop, which stopped at version 3.4.13.</p>
+    <p>This is an unofficial fork. It is not affiliated with, maintained or endorsed by GitHub.</p>
+    <p>GitHub Desktop is an open-source Electron-based GitHub app. It is written in TypeScript and uses React.</p>
+  </description>
+
+  <launchable type="desktop-id">io.github.nitramo_yt.Github-Desktop.desktop</launchable>
+
+  <url type="homepage">https://github.com/NitramO-YT/Github-Desktop</url>
+  <url type="bugtracker">https://github.com/NitramO-YT/Github-Desktop/issues</url>
+  <url type="vcs-browser">https://github.com/NitramO-YT/Github-Desktop</url>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="@VERSION@" date="@DATE@" />
+  </releases>
+</component>

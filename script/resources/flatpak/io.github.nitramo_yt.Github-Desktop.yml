@@ -1,0 +1,85 @@
+# The Flatpak of this fork. It repackages the .deb built by the same CI run
+# rather than compiling the application a second time, so that the Flatpak
+# holds exactly the binaries of the other packages.
+#
+# Built by script/build-flatpak.sh, which copies this directory next to the
+# .deb, renamed github-desktop.deb, and fills in the release of the metainfo.
+app-id: io.github.nitramo_yt.Github-Desktop
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+# Brings zypak, through which Chromium sandboxes its own processes inside the
+# Flatpak sandbox, where the setuid helper of the .deb cannot work.
+base: org.electronjs.Electron2.BaseApp
+base-version: '25.08'
+command: github-desktop
+separate-locales: false
+# The binaries arrive built in the .deb and are left as they are, with no
+# debugging information split out of them.
+build-options:
+  no-debuginfo: true
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Git reaches the SSH and GPG agents of the session to push and to sign.
+  - --socket=ssh-auth
+  - --socket=gpg-agent
+  # Hardware rendering. The device nodes of the NVIDIA driver sit outside
+  # /dev/dri, which --device=dri alone would leave out.
+  - --device=all
+  # Repositories can sit anywhere, and the editors and terminals the
+  # application offers are found by looking in the directories of the host.
+  - --filesystem=host
+  - --filesystem=/opt:ro
+  - --filesystem=/var/lib/flatpak/app:ro
+  - --filesystem=xdg-run/keyring
+  # Editors and terminals run on the host, started through flatpak-spawn.
+  - --talk-name=org.freedesktop.Flatpak
+  # The keychain that holds the GitHub token.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+  # Moving a file to the trash goes through GIO and its daemon.
+  - --talk-name=org.gtk.vfs.*
+  - --talk-name=com.canonical.AppMenu.Registrar
+  # What app/src/lib/helpers/linux.ts reads to know it runs inside Flatpak.
+  - --env=FLATPAK_HOST=1
+  - --env=ELECTRON_TRASH=gio
+modules:
+  - name: github-desktop
+    buildsystem: simple
+    sources:
+      - type: file
+        path: github-desktop.deb
+      - type: file
+        path: io.github.nitramo_yt.Github-Desktop.desktop
+      - type: file
+        path: io.github.nitramo_yt.Github-Desktop.metainfo.xml
+      - type: file
+        path: set-desktop-name.py
+      - type: script
+        dest-filename: github-desktop.sh
+        commands:
+          # The temporary files the application hands to editors and
+          # terminals must be readable from the host, which the /tmp of the
+          # sandbox is not.
+          - export TMPDIR="$XDG_RUNTIME_DIR/app/$FLATPAK_ID"
+          - exec zypak-wrapper /app/github-desktop/github-desktop "$@"
+    build-commands:
+      - ar x github-desktop.deb
+      - tar -xf data.tar.*
+      - cp -a usr/lib/github-desktop /app/github-desktop
+      # zypak takes the place of this setuid helper, which cannot work inside
+      # Flatpak.
+      - rm /app/github-desktop/chrome-sandbox
+      - python3 set-desktop-name.py
+        /app/github-desktop/resources/app/package.json "$FLATPAK_ID.desktop"
+      - install -Dm755 github-desktop.sh /app/bin/github-desktop
+      - install -Dm644 -t /app/share/applications "$FLATPAK_ID.desktop"
+      - install -Dm644 -t /app/share/metainfo "$FLATPAK_ID.metainfo.xml"
+      # The .deb also ships a 1024 pixel icon, which Flatpak refuses to
+      # export: icons go up to 512 pixels.
+      - for size in 32 64 128 256 512; do install -Dm644
+        "usr/share/icons/hicolor/${size}x${size}/apps/github-desktop.png"
+        "/app/share/icons/hicolor/${size}x${size}/apps/$FLATPAK_ID.png"; done

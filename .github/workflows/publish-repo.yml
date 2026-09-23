@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            apt-utils createrepo-c rpm
+            apt-utils createrepo-c rpm flatpak ostree
 
       # The bucket holds what each channel currently serves. Reading it back is
       # what lets a run add one version and drop the oldest without having to
@@ -208,7 +208,22 @@ jobs:
             done < list.txt
           done
 
-          find staging -name '*.deb' -o -name '*.rpm' | sort
+          # The Flatpak repository holds only the version at the head of each
+          # channel, and a version released before this fork built a Flatpak
+          # has none to download.
+          mkdir -p staging/flatpak
+          for channel in stable latest beta; do
+            version="$(jq -r --arg channel "$channel" '.[$channel][0] // empty' state.json)"
+            [ -n "$version" ] || continue
+            if jq -e 'any(.[]; .name | endswith(".flatpak"))' \
+                "staging/assets/$version.json" > /dev/null; then
+              echo "Downloading the Flatpak of $version for $channel"
+              retry gh release download "release-$version" \
+                --pattern '*.flatpak' --dir staging/flatpak --clobber
+            fi
+          done
+
+          find staging -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' | sort
 
       # Everything downstream reads the staging directory and would otherwise
       # fail several steps later, on a path that does not exist, saying nothing
@@ -243,7 +258,7 @@ jobs:
       # stops the publication here instead of being signed into an index.
       - name: Check the packages are the files that were released
         run: |
-          for package in staging/deb/*/*.deb staging/rpm/*/*.rpm; do
+          for package in staging/deb/*/*.deb staging/rpm/*/*.rpm staging/flatpak/*.flatpak; do
             [ -e "$package" ] || continue
             checksum="$GITHUB_WORKSPACE/staging/checksums/$(basename "$package").sha256"
             (cd "$(dirname "$package")" && sha256sum --check --quiet "$checksum")
@@ -257,12 +272,22 @@ jobs:
           echo "GPG_KEY=$key" >> "$GITHUB_ENV"
           echo "Signing with $key"
 
+      # Unlike the APT and RPM trees, the Flatpak repository is updated in
+      # place, so what the bucket holds is read back first. A copy that arrives
+      # incomplete fails the check build-flatpak-repo.sh runs before changing
+      # anything.
+      - name: Read the Flatpak repository
+        run: |
+          aws s3 sync "s3://$BUCKET/flatpak/repo" flatpak-repo \
+            --endpoint-url "$AWS_ENDPOINT_URL" --only-show-errors
+
       - name: Build the repository
         run: |
           # The landing page names the version each channel serves, so the
           # state travels with the packages it describes.
           cp state.json staging/state.json
           bash script/build-linux-repo.sh staging repo "$GPG_KEY"
+          bash script/build-flatpak-repo.sh flatpak-repo staging "$GPG_KEY" repo/flatpak
           cp state.json repo/state.json
 
       # Packages first, indexes second. An index that names a package the bucket
@@ -279,6 +304,14 @@ jobs:
             --exclude '*/repodata/*' \
             --cache-control 'public, max-age=31536000, immutable' \
             --size-only
+          # The objects and deltas of the Flatpak repository are named after
+          # their content, so a name never changes what it holds.
+          aws s3 sync flatpak-repo "s3://$BUCKET/flatpak/repo" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --exclude '*' --include 'objects/*' --include 'deltas/*' \
+            --include 'summaries/*' \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --size-only
 
       - name: Upload the indexes
         run: |
@@ -291,12 +324,40 @@ jobs:
             --cache-control 'public, max-age=300' \
             --exclude '*' --include '*/repodata/*' --include '*.repo'
 
+          # The summary of the Flatpak repository and its signature change
+          # together. Kept for a few minutes like the indexes above, one could
+          # be served from the previous run and the other from this one, and
+          # the signature check would fail: they are revalidated every time.
+          aws s3 sync flatpak-repo "s3://$BUCKET/flatpak/repo" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --exclude 'objects/*' --exclude 'deltas/*' --exclude 'summaries/*' \
+            --exclude 'tmp/*' --exclude 'state/*' \
+            --cache-control 'no-cache'
+
+          # Served with the types browsers hand over to Discover or GNOME
+          # Software, which then offer to install.
+          for file in repo/flatpak/*.flatpakrepo repo/flatpak/*.flatpakref; do
+            [ -e "$file" ] || continue
+            case "$file" in
+              *.flatpakrepo) type='application/vnd.flatpak.repo' ;;
+              *) type='application/vnd.flatpak.ref' ;;
+            esac
+            aws s3 cp "$file" "s3://$BUCKET/flatpak/$(basename "$file")" \
+              --endpoint-url "$AWS_ENDPOINT_URL" \
+              --content-type "$type" \
+              --cache-control 'public, max-age=300'
+          done
+
       # Last, so that a run that fails halfway leaves the bucket serving the
       # versions it was serving before, and the next run starts from there.
       - name: Drop the versions that left the channels, then record the state
         run: |
           aws s3 sync repo/deb/pool "s3://$BUCKET/deb/pool" \
             --endpoint-url "$AWS_ENDPOINT_URL" --delete --size-only
+          # The objects of commits pruned from every branch.
+          aws s3 sync flatpak-repo "s3://$BUCKET/flatpak/repo" \
+            --endpoint-url "$AWS_ENDPOINT_URL" --delete --size-only \
+            --exclude 'tmp/*' --exclude 'state/*'
 
           # Everything sitting at the root of the tree, named or not: listing
           # the files one by one is how the icons ended up built but never

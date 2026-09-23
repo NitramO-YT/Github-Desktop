@@ -14,6 +14,7 @@
 //
 //   <!-- language-data -->   the languages, for the scripts of the page
 //   <!-- language-rules -->  the rules that show one language at a time
+//   <!-- flatpak -->         the Flatpak section, described below
 //   <!-- downloads -->       the download section, described below
 //
 // A text is taken from the first of: the language of the page, English, the
@@ -24,16 +25,16 @@
 // that does not is set aside with a warning, as if it were missing, so that
 // no translation can add markup of its own to the page.
 //
-// The download section names versions, so it is rendered from the staging
-// directory the repository was just built from, which is the only place that
-// knows what each channel ended up serving. Besides the packages of each
-// channel, it holds:
+// The download and Flatpak sections name versions and channels, so they are
+// rendered from the staging directory the repository was just built from,
+// which is the only place that knows what each channel ended up serving.
+// Besides the packages of each channel, it holds:
 //
 //   state.json               what each channel serves, newest first
 //   checksums/<file>.sha256  the checksum files published with each release
 //   assets/<version>.json    the name and size of every file of a release
 //
-// Without a staging directory, the page is rendered without that section,
+// Without a staging directory, the page is rendered without those sections,
 // which is enough to check a translation of everything else.
 //
 // Usage: node render-repo-page.mjs <template> <out> [<staging-dir>]
@@ -350,13 +351,34 @@ function findPackage(dir, version, extension) {
   return { name, size: statSync(join(dir, name)).size }
 }
 
-/** The AppImage is only published on GitHub, so its size comes from there. */
-function findAppImage(version) {
+/**
+ * A file that is only published on GitHub, where its size comes from, or null
+ * when the release of that version has none.
+ */
+function findReleaseFile(version, extension) {
   const path = join(stagingDir, 'assets', `${version}.json`)
   const assets = JSON.parse(readFileSync(path, 'utf8'))
-  const asset = assets.find(a => a.name.endsWith('.AppImage'))
-  if (!asset) throw new Error(`release-${version} has no AppImage`)
-  return { name: asset.name, size: asset.size }
+  const asset = assets.find(a => a.name.endsWith(extension))
+  return asset ? { name: asset.name, size: asset.size } : null
+}
+
+/** Every release has an AppImage. */
+function findAppImage(version) {
+  const appImage = findReleaseFile(version, '.AppImage')
+  if (!appImage) throw new Error(`release-${version} has no AppImage`)
+  return appImage
+}
+
+/** The versions released before this fork built a Flatpak have none. */
+function findFlatpak(version) {
+  return findReleaseFile(version, '.flatpak')
+}
+
+/** What each channel serves, newest first, or null without a staging directory. */
+function readState() {
+  const statePath = stagingDir && join(stagingDir, 'state.json')
+  if (!statePath || !existsSync(statePath)) return null
+  return JSON.parse(readFileSync(statePath, 'utf8'))
 }
 
 /** Where the checksum of a file is listed, for the table to link to. */
@@ -383,11 +405,8 @@ function readChecksum(fileName) {
  * whatever the language of the page.
  */
 function downloadSection() {
-  const statePath = stagingDir && join(stagingDir, 'state.json')
-  if (!statePath || !existsSync(statePath)) {
-    return { html: '', channels: 0, versions: 0 }
-  }
-  const state = JSON.parse(readFileSync(statePath, 'utf8'))
+  const state = readState()
+  if (!state) return { html: '', channels: 0, versions: 0 }
   const rows = []
   // Stable and latest usually serve the same version: its checksums are
   // listed once, naming every channel that serves it.
@@ -403,6 +422,7 @@ function downloadSection() {
     const deb = findPackage(join(stagingDir, 'deb', key), version, '.deb')
     const rpm = findPackage(join(stagingDir, 'rpm', key), version, '.rpm')
     const appImage = findAppImage(version)
+    const flatpak = findFlatpak(version)
     const release = `release-${encodeURIComponent(version)}`
 
     const cell = (file, href) =>
@@ -410,16 +430,26 @@ function downloadSection() {
         ? `<a href="${href}" dir="ltr" translate="no">${escapeHtml(file.name)}</a><br /><span class="size">${formatted(lang => readableSize(file.size, lang))} &middot; <a href="#${checksumId(file.name)}">SHA-256</a></span>`
         : '&mdash;'
 
+    // The Flatpak of a version subscribes whoever installs it to latest, or to
+    // beta for a beta: a version always comes out on latest before stable. The
+    // stable row therefore offers the file that installs from the stable
+    // branch of the repository instead.
+    const flatpakCell =
+      key === 'stable' && flatpak
+        ? `<a href="${BASE_URL}/flatpak/github-desktop-stable.flatpakref" dir="ltr" translate="no">github-desktop-stable.flatpakref</a>`
+        : cell(flatpak, `${RELEASES}/download/${release}/${encodeURIComponent(flatpak?.name)}`)
+
     rows.push(`        <tr>
           <td><code>${key}</code><br /><span class="size">${t(`channels.${key}.name`)}</span></td>
           <td class="version"><a href="${RELEASES}/tag/${release}" dir="ltr" translate="no">${escapeHtml(version)}</a></td>
           <td>${cell(deb, `${BASE_URL}/deb/pool/${key}/main/g/github-desktop/${encodeURIComponent(deb?.name)}`)}</td>
           <td>${cell(rpm, `${BASE_URL}/rpm/${key}/${encodeURIComponent(rpm?.name)}`)}</td>
           <td>${cell(appImage, `${RELEASES}/download/${release}/${encodeURIComponent(appImage.name)}`)}</td>
+          <td>${flatpakCell}</td>
         </tr>`)
 
     if (!versions.has(version)) {
-      const files = [deb, rpm, appImage].filter(Boolean).map(f => f.name)
+      const files = [deb, rpm, appImage, flatpak].filter(Boolean).map(f => f.name)
       versions.set(version, { channels: [], files })
     }
     versions.get(version).channels.push(key)
@@ -472,6 +502,7 @@ EOF</code></pre>`
           <th>${t('column.deb')}</th>
           <th>${t('column.rpm')}</th>
           <th>${t('column.appImage')}</th>
+          <th>${t('column.flatpak')}</th>
         </tr>
       </thead>
       <tbody>
@@ -486,6 +517,45 @@ ${rows.join('\n')}
 ${checksums.join('\n')}`
 
   return { html, channels: rows.length, versions: versions.size }
+}
+
+/**
+ * The command that installs the Flatpak of each channel. The repository holds
+ * a branch only for a channel whose version was built with a Flatpak, so the
+ * other channels are named as not having one yet, and the section is left out
+ * while no channel has one.
+ */
+function flatpakSection() {
+  const state = readState()
+  if (!state) return ''
+
+  const available = []
+  const missing = []
+  for (const key of CHANNELS) {
+    const version = (state[key] ?? [])[0]
+    if (!version) continue
+    ;(findFlatpak(version) ? available : missing).push(key)
+  }
+  if (available.length === 0) return ''
+
+  const commands = available.map(
+    key => `    <h3>${t('flatpak.channel', { values: () => ({ channel: `<code>${key}</code>` }) })}</h3>
+    <pre translate="no"><code>flatpak install --user ${BASE_URL}/flatpak/github-desktop-${key}.flatpakref</code></pre>`
+  )
+  const notYet =
+    missing.length === 0
+      ? ''
+      : `
+    <p class="note">${t('flatpak.notYet', {
+      values: lang => ({ channels: channelList(missing, lang) }),
+    })}</p>`
+
+  return `    <h2>Flatpak</h2>
+    <p>${t('flatpak.intro')}</p>
+
+${commands.join('\n\n')}
+${notYet}
+    <p class="note">${t('flatpak.changing')}</p>`
 }
 
 /** Replaces a comment of the template with what the renderer generates. */
@@ -522,6 +592,7 @@ if (page.includes('{{')) {
 const downloads = downloadSection()
 page = insert(page, '<!-- language-data -->', languageData())
 page = insert(page, '<!-- language-rules -->', languageRules())
+page = insert(page, '<!-- flatpak -->', flatpakSection())
 page = insert(page, '<!-- downloads -->', downloads.html)
 
 writeFileSync(out, page)

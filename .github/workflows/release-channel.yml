@@ -97,6 +97,15 @@ jobs:
         run: |
           mkdir assets
           gh release download "$SOURCE_TAG" --dir assets
+
+          # The Flatpak of a version subscribes whoever installs it to latest,
+          # where every version comes out before stable. Offered on the stable
+          # release, it would move them off stable without a word, so that
+          # release names the stable branch of the repository instead.
+          if [ "$CHANNEL" = "stable" ] && compgen -G 'assets/*.flatpak' > /dev/null; then
+            rm assets/*.flatpak assets/*.flatpak.sha256
+            echo "FLATPAK_REF=https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref" >> "$GITHUB_ENV"
+          fi
           ls -l assets
 
       - name: Move the channel onto that version
@@ -113,6 +122,9 @@ jobs:
           if [ "$CHANNEL" = "stable" ]; then
             title="Stable: GitHub Desktop for Linux $version"
             notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG)."
+            if [ -n "${FLATPAK_REF:-}" ]; then
+              notes+=$'\n\n'"To follow the stable channel with Flatpak, install it from the package repository: \`flatpak install --user $FLATPAK_REF\`"
+            fi
             extra=()
           else
             title="Beta: GitHub Desktop for Linux $version"
