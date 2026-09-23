@@ -223,6 +223,20 @@ jobs:
           name: release-notes
           path: notes
 
+      # The notes are written by the build job, before the Flatpak exists, and
+      # keep a line of their download table for it. A missing line stops the
+      # run, rather than publishing a table that leaves the Flatpak out.
+      - name: Add the Flatpak to the release notes
+        run: |
+          flatpak="$(cd packages && ls -- *.flatpak)"
+          checksum="$(cut -d ' ' -f 1 "packages/$flatpak.sha256")"
+          awk -v row="| \`$flatpak\` | \`$checksum\` |" '
+            $0 == "<!-- flatpak -->" { print row; found = 1; next }
+            { print }
+            END { exit !found }
+          ' notes/release_notes.txt > notes/filled.txt
+          mv notes/filled.txt notes/release_notes.txt
+
       # The release is created as a draft: the packages are attached and the
       # release notes are filled in, but nothing is public until a human reads
       # them over and presses Publish. A beta is a pre-release, so that the
