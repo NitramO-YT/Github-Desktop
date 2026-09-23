@@ -3,8 +3,36 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GitHub Desktop for Linux — package repository</title>
+    <title>GitHub Desktop for Linux: package repository</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <!--
+      The language is settled here, before the body is drawn, so that the page
+      never shows one language and then switches to the other. A choice made
+      with the switch wins, then the language of the browser; English is what
+      remains, and what a browser without JavaScript shows.
+    -->
+    <script>
+      ;(function () {
+        var lang = 'en'
+        var browser =
+          (navigator.languages && navigator.languages[0]) ||
+          navigator.language ||
+          ''
+        if (/^fr(-|$)/i.test(browser)) lang = 'fr'
+        try {
+          var saved = localStorage.getItem('lang')
+          if (saved === 'en' || saved === 'fr') lang = saved
+        } catch (e) {
+          // Storage can be refused, in a private window for instance: the
+          // language of the browser then decides.
+        }
+        document.documentElement.setAttribute('data-lang', lang)
+        document.documentElement.lang = lang
+        if (lang === 'fr') {
+          document.title = 'GitHub Desktop pour Linux : dépôt de paquets'
+        }
+      })()
+    </script>
     <style>
       :root {
         color-scheme: light dark;
@@ -14,7 +42,9 @@
         --border: #d1d9e0;
         --code-bg: #f6f8fa;
         --accent: #0969da;
+        --accent-fg: #ffffff;
         --pick-bg: #f6f8fa;
+        --inline-code-bg: #818b981f;
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -24,8 +54,15 @@
           --border: #3d444d;
           --code-bg: #151b23;
           --accent: #4493f8;
+          --accent-fg: #0d1117;
           --pick-bg: #151b23;
+          --inline-code-bg: #656c7633;
         }
+      }
+      /* Every text exists in both languages; only the chosen one is shown. */
+      html:not([data-lang='fr']) body [lang='fr'],
+      html[data-lang='fr'] body [lang='en'] {
+        display: none !important;
       }
       * {
         box-sizing: border-box;
@@ -36,19 +73,40 @@
         max-width: 48rem;
         background: var(--bg);
         color: var(--fg);
-        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans,
+        font: 1rem/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Noto Sans,
           Helvetica, Arial, sans-serif;
+      }
+      /* A wide screen gives the page more room, which the tables and the
+         checksum lines use. 78.125rem is 1250px at the default font size. */
+      @media (min-width: 78.125rem) {
+        body {
+          max-width: 75rem;
+        }
+      }
+      /* Narrower than 315px, 19.6875rem at the default font size, the page
+         would spill past the edge of the screen. It keeps the layout it has at
+         that width instead and shrinks as a whole to fit: every size on the
+         page is in rem or em, so they all follow the root font size, set here
+         in proportion to the width. */
+      @media (max-width: 19.6875rem) {
+        html {
+          font-size: calc(100vw / 19.6875);
+        }
       }
       header {
         display: flex;
+        flex-wrap: wrap;
         gap: 1rem;
         align-items: center;
         margin-bottom: 2.5rem;
       }
       header img {
-        width: 64px;
-        height: 64px;
+        width: 4rem;
+        height: 4rem;
         flex: none;
+      }
+      .intro {
+        flex: 1 1 18rem;
       }
       h1 {
         margin: 0 0 0.2rem;
@@ -57,6 +115,43 @@
       header p {
         margin: 0;
         color: var(--muted);
+      }
+      .lang-switch {
+        display: inline-flex;
+        align-self: flex-start;
+        margin-left: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .lang-switch button {
+        padding: 0.3rem 0.7rem;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      .lang-switch button + button {
+        border-left: 1px solid var(--border);
+      }
+      .lang-switch button[aria-pressed='true'] {
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+      /* On a narrow screen the title takes a line of its own, and the switch
+         moves up beside the logo rather than trailing under the text. */
+      @media (max-width: 40rem) {
+        header img {
+          order: -2;
+        }
+        .lang-switch {
+          order: -1;
+        }
+        .intro {
+          flex-basis: 100%;
+        }
       }
       h2 {
         margin: 2.75rem 0 0.75rem;
@@ -79,7 +174,66 @@
         line-height: 1.55;
       }
       code {
-        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+        font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+      }
+      /* Code within a sentence or a table cell gets a light background, as on
+         GitHub, so that it reads as code next to the framed checksums. */
+      :not(pre) > code:not(.hash) {
+        padding: 0.15em 0.4em;
+        border-radius: 6px;
+        background: var(--inline-code-bg);
+        font-size: 0.85em;
+      }
+      /* The frame of a code block moves to its wrapper once the script adds the
+         buttons, so that they sit inside the frame without scrolling along
+         with a long line. */
+      .code {
+        margin: 0.6rem 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--code-bg);
+      }
+      .code pre {
+        margin: 0;
+        border: 0;
+        border-radius: 0 0 6px 6px;
+        padding-top: 0.4rem;
+      }
+      .code-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.4rem;
+        padding: 0.45rem 0.55rem 0;
+      }
+      .code-actions button,
+      .sums button {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.15rem 0.6rem;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+      /* The icons are filled with currentColor, so they follow the colour of
+         their button, hover included. */
+      .code-actions svg,
+      .sums svg {
+        width: 1.1em;
+        height: 1.1em;
+        flex: none;
+      }
+      .code-actions button:hover,
+      .sums button:hover,
+      .lang-switch button:hover {
+        color: var(--accent);
+      }
+      .lang-switch button[aria-pressed='true']:hover {
+        color: var(--accent-fg);
       }
       table {
         width: 100%;
@@ -98,12 +252,104 @@
         background: var(--pick-bg);
         font-weight: 600;
       }
-      td code {
-        font-size: 0.88em;
+      /* On a narrow screen the cells are tighter, which leaves the columns of
+         the channel table room for their longest words, in either language. */
+      @media (max-width: 40rem) {
+        th,
+        td {
+          padding: 0.6rem 0.5rem;
+        }
+      }
+      /* File names are long: they break after a hyphen rather than anywhere,
+         and a version number stays whole. The underline sits lower than
+         usual: at its usual height it covers the underscore of x86_64, which
+         then reads as a space. */
+      td a {
+        overflow-wrap: anywhere;
+        text-underline-offset: 0.3em;
+      }
+      td.version {
+        white-space: nowrap;
+      }
+      /* Five columns do not fit a phone. The table scrolls on its own there,
+         keeping a width at which the file names stay readable, instead of
+         widening the whole page. */
+      .table-scroll {
+        margin: 0.5rem 0 1.5rem;
+        overflow-x: auto;
+      }
+      .table-scroll table {
+        min-width: 36rem;
+        margin: 0;
+      }
+      /* A checksum line is wider than the page. Wrapped rather than scrolled,
+         each file name shows right under its checksum; copying still gives the
+         lines as they are. */
+      pre.checksums {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      pre.checksums .file {
+        white-space: nowrap;
       }
       .size {
         color: var(--muted);
         font-size: 0.82em;
+      }
+      .checksum-for {
+        margin: 1.4rem 0 0.3rem;
+      }
+      /* Each checksum sits under its file name, framed like a code block of a
+         single line with its copy button inside, readable and copyable by
+         itself. On a screen narrower than a checksum, the checksum wraps
+         inside its frame and the button keeps its place. A SHA-256 link of
+         the table stops the page a little above the file it points to, which
+         keeps the title of its version in view, and that file stands out. */
+      .sums {
+        margin: 0.4rem 0 0.8rem;
+      }
+      .sums dt {
+        margin-top: 0.6rem;
+        font-size: 0.9rem;
+        overflow-wrap: anywhere;
+        scroll-margin-top: 3rem;
+      }
+      .sums dt:target {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      /* Following a SHA-256 link of the table scrolls to the checksum rather
+         than jumping to it, so that the reader sees where the page went. The
+         property belongs to the page as a whole and covers any link within
+         it. A system set to reduce motion keeps the jump. */
+      @media (prefers-reduced-motion: no-preference) {
+        html {
+          scroll-behavior: smooth;
+        }
+      }
+      .sums dd {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.25rem 0 0;
+        padding: 0.35rem 0.45rem 0.35rem 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--code-bg);
+      }
+      .sums .hash {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+      .sums button {
+        flex: none;
+      }
+      .sums-command {
+        margin: 1rem 0 0.3rem;
+        color: var(--muted);
+        font-size: 0.9rem;
       }
       a {
         color: var(--accent);
@@ -127,80 +373,150 @@
   <body>
     <header>
       <img src="/logo.png" alt="" width="64" height="64" />
-      <div>
-        <h1>GitHub Desktop for Linux</h1>
-        <p>
+      <div class="intro">
+        <h1>
+          <span lang="en">GitHub Desktop for Linux</span
+          ><span lang="fr">GitHub Desktop pour Linux</span>
+        </h1>
+        <p lang="en">
           Package repository for the maintained Linux builds. Add it once, then
           upgrade with the rest of your system.
+        </p>
+        <p lang="fr">
+          Dépôt de paquets des versions Linux maintenues. Ajoutez-le une fois,
+          puis mettez à jour avec le reste de votre système.
         </p>
       </div>
     </header>
 
-    <h2>Choose a channel</h2>
-    <p>
+    <h2>
+      <span lang="en">Choose a channel</span
+      ><span lang="fr">Choisir un canal</span>
+    </h2>
+    <p lang="en">
       Pick one. Your package manager then keeps you on the newest version of
       that channel by itself, with no download to repeat.
+    </p>
+    <p lang="fr">
+      Choisissez-en un. Votre gestionnaire de paquets vous garde ensuite de
+      lui-même sur la version la plus récente de ce canal, sans téléchargement à
+      refaire.
     </p>
     <table>
       <thead>
         <tr>
-          <th>Channel</th>
-          <th>What it serves</th>
-          <th>Choose it if</th>
+          <th><span lang="en">Channel</span><span lang="fr">Canal</span></th>
+          <th>
+            <span lang="en">What it serves</span
+            ><span lang="fr">Ce qu'il fournit</span>
+          </th>
+          <th>
+            <span lang="en">Choose it if</span
+            ><span lang="fr">Choisissez-le si</span>
+          </th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td><code>stable</code></td>
           <td>
-            A version that has been in use for a while without a known issue.
-            Promoted by hand, never on the day it is released.
+            <span lang="en"
+              >A version that has been in use for a while without a known issue.
+              Promoted by hand, never on the day it is released.</span
+            ><span lang="fr"
+              >Une version utilisée depuis un certain temps sans problème connu.
+              Promue à la main, jamais le jour de sa sortie.</span
+            >
           </td>
-          <td>you want the safest option. Start here.</td>
+          <td>
+            <span lang="en">you want the safest option. Start here.</span
+            ><span lang="fr"
+              >vous voulez l'option la plus sûre. Commencez par là.</span
+            >
+          </td>
         </tr>
         <tr>
           <td><code>latest</code></td>
           <td>
-            The newest release, as soon as it is published. It has not been
-            proven yet.
+            <span lang="en"
+              >The newest release, as soon as it is published. It has not been
+              proven yet.</span
+            ><span lang="fr"
+              >La version la plus récente, dès sa publication. Elle n'a pas
+              encore fait ses preuves.</span
+            >
           </td>
-          <td>you want new fixes without waiting.</td>
+          <td>
+            <span lang="en">you want new fixes without waiting.</span
+            ><span lang="fr"
+              >vous voulez les nouveaux correctifs sans attendre.</span
+            >
+          </td>
         </tr>
         <tr>
           <td><code>beta</code></td>
           <td>
-            Built from the official beta versions: what the next release will
-            bring, and the bugs a beta comes with.
+            <span lang="en"
+              >Built from the official beta versions: what the next release will
+              bring, and the bugs a beta comes with.</span
+            ><span lang="fr"
+              >Construite à partir des versions bêta officielles&nbsp;: ce
+              qu'apportera la prochaine version, avec les bugs qu'une bêta
+              comporte.</span
+            >
           </td>
-          <td>you want to test ahead and report what breaks.</td>
+          <td>
+            <span lang="en">you want to test ahead and report what breaks.</span
+            ><span lang="fr"
+              >vous voulez tester en avance et signaler ce qui casse.</span
+            >
+          </td>
         </tr>
       </tbody>
     </table>
-    <p class="note">
+    <p class="note" lang="en">
       Most of the time <code>stable</code> and <code>latest</code> hold the same
       version. They differ after a new release, until it has been proven.
     </p>
+    <p class="note" lang="fr">
+      La plupart du temps, les canaux <code>stable</code> et
+      <code>latest</code> contiennent la même version. Ils diffèrent après une
+      nouvelle sortie, jusqu'à ce que celle-ci ait fait ses preuves.
+    </p>
 
     <h2>Debian, Ubuntu, Linux Mint, Pop!_OS</h2>
-    <p>Add the signing key once, whichever channel you pick:</p>
+    <p lang="en">Add the signing key once, whichever channel you pick:</p>
+    <p lang="fr">
+      Ajoutez la clé de signature une seule fois, quel que soit le canal
+      choisi&nbsp;:
+    </p>
     <pre><code>curl -fsSL https://packages-github-desktop.nitramo.fr/gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/github-desktop.gpg</code></pre>
 
-    <h3>Then, for the stable channel</h3>
+    <h3>
+      <span lang="en">Then, for the stable channel</span
+      ><span lang="fr">Puis, pour le canal stable</span>
+    </h3>
     <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
-    <h3>For the latest channel</h3>
+    <h3>
+      <span lang="en">For the latest channel</span
+      ><span lang="fr">Pour le canal latest</span>
+    </h3>
     <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb latest main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
 
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
-    <h3>For the beta channel</h3>
+    <h3>
+      <span lang="en">For the beta channel</span
+      ><span lang="fr">Pour le canal beta</span>
+    </h3>
     <pre><code>echo "deb [arch=amd64 signed-by=/usr/share/keyrings/github-desktop.gpg] \
 https://packages-github-desktop.nitramo.fr/deb beta main" \
   | sudo tee /etc/apt/sources.list.d/github-desktop.list
@@ -208,22 +524,35 @@ https://packages-github-desktop.nitramo.fr/deb beta main" \
 sudo apt update &amp;&amp; sudo apt install github-desktop</code></pre>
 
     <h2>Fedora, RHEL, Rocky, AlmaLinux</h2>
-    <p>Import the signing key once, whichever channel you pick:</p>
+    <p lang="en">Import the signing key once, whichever channel you pick:</p>
+    <p lang="fr">
+      Importez la clé de signature une seule fois, quel que soit le canal
+      choisi&nbsp;:
+    </p>
     <pre><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key</code></pre>
 
-    <h3>Then, for the stable channel</h3>
+    <h3>
+      <span lang="en">Then, for the stable channel</span
+      ><span lang="fr">Puis, pour le canal stable</span>
+    </h3>
     <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
-    <h3>For the latest channel</h3>
+    <h3>
+      <span lang="en">For the latest channel</span
+      ><span lang="fr">Pour le canal latest</span>
+    </h3>
     <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/latest/github-desktop.repo
 
 sudo dnf install github-desktop</code></pre>
 
-    <h3>For the beta channel</h3>
+    <h3>
+      <span lang="en">For the beta channel</span
+      ><span lang="fr">Pour le canal beta</span>
+    </h3>
     <pre><code>sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/beta/github-desktop.repo
 
@@ -231,35 +560,249 @@ sudo dnf install github-desktop</code></pre>
 
     <!-- downloads -->
 
-    <h2>Changing channel later</h2>
-    <p>
+    <h2>
+      <span lang="en">Changing channel later</span
+      ><span lang="fr">Changer de canal plus tard</span>
+    </h2>
+    <p lang="en">
       Replace the file you created and update: on Debian and friends
       <code>/etc/apt/sources.list.d/github-desktop.list</code>, on Fedora and
       friends <code>/etc/yum.repos.d/github-desktop.repo</code>. There is one
       file and one package name, so a machine follows one channel at a time.
     </p>
-    <p class="note">
+    <p lang="fr">
+      Remplacez le fichier que vous avez créé, puis mettez à jour&nbsp;: sur
+      Debian et ses dérivées
+      <code>/etc/apt/sources.list.d/github-desktop.list</code>, sur Fedora et
+      ses dérivées <code>/etc/yum.repos.d/github-desktop.repo</code>. Il n'y a
+      qu'un fichier et qu'un nom de paquet&nbsp;: une machine suit donc un seul
+      canal à la fois.
+    </p>
+    <p class="note" lang="en">
       Moving down a channel, from beta to stable for instance, means removing
       the package first: the version you already have is the higher one, and
       package managers refuse to go backwards on their own.
     </p>
+    <p class="note" lang="fr">
+      Descendre d'un canal, de beta vers stable par exemple, oblige à
+      désinstaller d'abord le paquet&nbsp;: la version déjà installée est la
+      plus élevée, et les gestionnaires de paquets refusent de revenir en
+      arrière d'eux-mêmes.
+    </p>
 
-    <h2>Signing key</h2>
+    <h2>
+      <span lang="en">Signing key</span><span lang="fr">Clé de signature</span>
+    </h2>
     <pre><code>GitHub Desktop for Linux (NitramO) &lt;contact@nitramo.fr&gt;
 0A63 E20B 6AF5 A6EC D45B  D895 6B53 59F0 1735 4722</code></pre>
-    <p>
+    <p lang="en">
       Every index in this repository is signed with that key. Your package
       manager checks the signature on each update and refuses anything it cannot
       verify.
     </p>
+    <p lang="fr">
+      Chaque index de ce dépôt est signé avec cette clé. Votre gestionnaire de
+      paquets vérifie la signature à chaque mise à jour et refuse tout ce qu'il
+      ne peut pas vérifier.
+    </p>
 
     <footer>
-      Sources, releases and issues:
-      <a href="https://github.com/NitramO-YT/Github-Desktop"
-        >github.com/NitramO-YT/Github-Desktop</a
-      >. This is an unofficial Linux port of
-      <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, not
-      affiliated with GitHub.
+      <span lang="en"
+        >Sources, releases and issues:
+        <a href="https://github.com/NitramO-YT/Github-Desktop"
+          >github.com/NitramO-YT/Github-Desktop</a
+        >. This is an unofficial Linux port of
+        <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, not
+        affiliated with GitHub.</span
+      ><span lang="fr"
+        >Sources, versions et signalements&nbsp;:
+        <a href="https://github.com/NitramO-YT/Github-Desktop"
+          >github.com/NitramO-YT/Github-Desktop</a
+        >. Ceci est un portage Linux non officiel de
+        <a href="https://github.com/desktop/desktop">GitHub Desktop</a>, sans
+        lien avec GitHub.</span
+      >
     </footer>
+
+    <!--
+      Everything below only adds controls. They are created here rather than
+      written in the page, so that a browser without JavaScript shows no button
+      that would do nothing.
+    -->
+    <script>
+      ;(function () {
+        var root = document.documentElement
+        var TITLES = {
+          en: 'GitHub Desktop for Linux: package repository',
+          fr: 'GitHub Desktop pour Linux : dépôt de paquets',
+        }
+
+        // Filled with currentColor, so that each icon takes the colour the
+        // stylesheet gives its button. Decorative: the label names the button.
+        var ICONS = {
+          copy: '<svg aria-hidden="true" focusable="false" fill="currentColor" clip-rule="evenodd" fill-rule="evenodd" stroke-linejoin="round" stroke-miterlimit="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="m6 19v2c0 .621.52 1 1 1h2v-1.5h-1.5v-1.5zm7.5 3h-3.5v-1.5h3.5zm4.5 0h-3.5v-1.5h3.5zm4-3h-1.5v1.5h-1.5v1.5h2c.478 0 1-.379 1-1zm-1.5-1v-3.363h1.5v3.363zm0-4.363v-3.637h1.5v3.637zm-13-3.637v3.637h-1.5v-3.637zm11.5-4v1.5h1.5v1.5h1.5v-2c0-.478-.379-1-1-1zm-10 0h-2c-.62 0-1 .519-1 1v2h1.5v-1.5h1.5zm4.5 1.5h-3.5v-1.5h3.5zm3-1.5v-2.5h-13v13h2.5v-1.863h1.5v3.363h-4.5c-.48 0-1-.379-1-1v-14c0-.481.38-1 1-1h14c.621 0 1 .522 1 1v4.5h-3.5v-1.5z" fill-rule="nonzero"/></svg>',
+          select:
+            '<svg aria-hidden="true" focusable="false" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M13 3v8h2v2h-2v8c0 .552.447 1 1 1h2v2h-2c-.771 0-1.468-.301-2-.78-.532.479-1.229.78-2 .78h-2v-2h2c.553 0 1-.448 1-1v-8h-2v-2h2v-8c0-.552-.447-1-1-1h-2v-2h2c.771 0 1.468.301 2 .78.532-.479 1.229-.78 2-.78h2v2h-2c-.553 0-1 .448-1 1zm11 14v-4h-2v4h2zm-2-10v4h2v-4h-2zm-22 0v4h2v-4h-2zm22-2h2v-4h-5v2h3v2zm-22 0h2v-2h3v-2h-5v4zm22 14v2h-3v2h5v-4h-2zm-20 0h-2v4h5v-2h-3v-2zm0-2v-4h-2v4h2z"/></svg>',
+        }
+
+        /**
+         * A button whose label exists in both languages, like the page. The
+         * label sits in a span of its own, so that changing it leaves the icon
+         * in place.
+         */
+        function button(icon, en, fr) {
+          var b = document.createElement('button')
+          b.type = 'button'
+          if (icon) b.insertAdjacentHTML('afterbegin', ICONS[icon])
+          var label = document.createElement('span')
+          label.className = 'label'
+          b.appendChild(label)
+          setLabel(b, en, fr)
+          return b
+        }
+
+        function setLabel(b, en, fr) {
+          var label = b.querySelector('.label')
+          label.textContent = ''
+          ;[
+            ['en', en],
+            ['fr', fr],
+          ].forEach(function (pair) {
+            var span = document.createElement('span')
+            span.lang = pair[0]
+            span.textContent = pair[1]
+            label.appendChild(span)
+          })
+        }
+
+        // The switch sits in the header, next to the title. Each choice is
+        // named in the language of the page and in its own, so that someone
+        // who reads only the other language still recognises it. The buttons
+        // carry no lang attribute themselves: the rule that hides the other
+        // language would hide the button that brings it back.
+        var switcher = document.createElement('div')
+        switcher.className = 'lang-switch'
+        switcher.setAttribute('role', 'group')
+        switcher.setAttribute('aria-label', 'Language / Langue')
+        var choices = [
+          ['en', '🇬🇧 English', '🇬🇧 Anglais - English'],
+          ['fr', '🇫🇷 French - Français', '🇫🇷 Français'],
+        ].map(function (choice) {
+          var b = button(null, choice[1], choice[2])
+          b.dataset.choice = choice[0]
+          b.addEventListener('click', function () {
+            setLanguage(choice[0])
+          })
+          switcher.appendChild(b)
+          return b
+        })
+        document.querySelector('header').appendChild(switcher)
+
+        function showChoice(lang) {
+          choices.forEach(function (b) {
+            b.setAttribute('aria-pressed', String(b.dataset.choice === lang))
+          })
+        }
+
+        /** Only a choice made with the switch is remembered. */
+        function setLanguage(lang) {
+          root.setAttribute('data-lang', lang)
+          root.lang = lang
+          document.title = TITLES[lang]
+          showChoice(lang)
+          try {
+            localStorage.setItem('lang', lang)
+          } catch (e) {
+            // Refused storage only means the choice lasts for this visit.
+          }
+        }
+
+        showChoice(root.getAttribute('data-lang') === 'fr' ? 'fr' : 'en')
+
+        function selectContents(code) {
+          var range = document.createRange()
+          range.selectNodeContents(code)
+          var selection = window.getSelection()
+          selection.removeAllRanges()
+          selection.addRange(range)
+        }
+
+        /**
+         * The clipboard API is only offered to a secure page, which this one
+         * is; the older command covers browsers that still refuse it.
+         */
+        function copyText(text, code) {
+          if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text).then(
+              function () {
+                return true
+              },
+              function () {
+                return legacyCopy(code)
+              }
+            )
+          }
+          return Promise.resolve(legacyCopy(code))
+        }
+
+        function legacyCopy(code) {
+          selectContents(code)
+          try {
+            return document.execCommand('copy')
+          } catch (e) {
+            return false
+          }
+        }
+
+        /** Copies the text of an element on click, and says how it went. */
+        function attachCopy(copy, code) {
+          var reset
+          copy.addEventListener('click', function () {
+            copyText(code.textContent, code).then(function (copied) {
+              if (copied) {
+                setLabel(copy, 'Copied', 'Copié')
+              } else {
+                // Nothing reached the clipboard: the text is left selected so
+                // that the keyboard can finish the job.
+                selectContents(code)
+                setLabel(copy, 'Press Ctrl+C', 'Appuyez sur Ctrl+C')
+              }
+              clearTimeout(reset)
+              reset = setTimeout(function () {
+                setLabel(copy, 'Copy', 'Copier')
+              }, 2000)
+            })
+          })
+        }
+
+        // A checksum listed on its own gets a copy button of its own.
+        document.querySelectorAll('code.hash').forEach(function (code) {
+          var copy = button('copy', 'Copy', 'Copier')
+          attachCopy(copy, code)
+          code.parentNode.appendChild(copy)
+        })
+
+        document.querySelectorAll('pre > code').forEach(function (code) {
+          var pre = code.parentNode
+          var frame = document.createElement('div')
+          frame.className = 'code'
+          var actions = document.createElement('div')
+          actions.className = 'code-actions'
+
+          var copy = button('copy', 'Copy', 'Copier')
+          var select = button('select', 'Select all', 'Tout sélectionner')
+          attachCopy(copy, code)
+          select.addEventListener('click', function () {
+            selectContents(code)
+          })
+
+          actions.appendChild(copy)
+          actions.appendChild(select)
+          pre.parentNode.insertBefore(frame, pre)
+          frame.appendChild(actions)
+          frame.appendChild(pre)
+        })
+      })()
+    </script>
   </body>
 </html>
