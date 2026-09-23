@@ -38,6 +38,13 @@ on:
         default: false
         type: boolean
 
+# Declared for the workflow rather than for the job that writes, because the
+# repository grants the token read access by default and a workflow calling
+# another one settles its permissions here. Leaving it on the job alone let the
+# release creation fall back to read, and fail with a 403.
+permissions:
+  contents: write
+
 jobs:
   promote:
     name: Point ${{ inputs.channel }} at ${{ inputs.version }}
