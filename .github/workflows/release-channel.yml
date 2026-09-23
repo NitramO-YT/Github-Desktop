@@ -120,13 +120,32 @@ jobs:
             extra=(--prerelease)
           fi
 
-          # The pointer is recreated rather than edited, so that its files are
+          # The tag goes first because it is the one step GitHub may refuse, and
+          # a refusal here leaves the channel serving what it served before.
+          # GitHub lets the workflow token tag a commit only while each of its
+          # workflow files also exists, same path and same content, on some
+          # branch. The versions/ branch that ci-linux.yml keeps on the commit
+          # of each version is what still satisfies that days later, once the
+          # workflows have moved on.
+          if gh api "repos/$GH_REPO/git/ref/tags/$CHANNEL" > /dev/null 2>&1; then
+            request=(--method PATCH "repos/$GH_REPO/git/refs/tags/$CHANNEL" -F force=true)
+          else
+            request=("repos/$GH_REPO/git/refs" -f "ref=refs/tags/$CHANNEL")
+          fi
+
+          if ! gh api "${request[@]}" -f "sha=$commit" > /dev/null; then
+            echo "GitHub refused to place the $CHANNEL tag on $commit." >&2
+            echo "The branch versions/$version is what allows it: create it on that commit from GitHub Desktop, then run this again." >&2
+            exit 1
+          fi
+
+          # The release is recreated rather than edited, so that its files are
           # exactly those of the version it points at, with nothing left over
-          # from the version before.
-          gh release delete "$CHANNEL" --yes --cleanup-tag || true
+          # from the version before. It is created on the tag placed above.
+          gh release delete "$CHANNEL" --yes || true
 
           gh release create "$CHANNEL" assets/* \
-            --target "$commit" \
+            --verify-tag \
             --title "$title" \
             --notes "$notes" \
             --latest=false \

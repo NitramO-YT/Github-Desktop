@@ -181,3 +181,68 @@ jobs:
           esac
 
           gh release create "$GITHUB_REF_NAME" packages/* "${flags[@]}"
+
+  # Moving the Stable or Beta link onto a version tags its commit, days after
+  # the version came out. GitHub lets the workflow token do so only while each
+  # workflow file of that commit also exists, same path and same content, on
+  # some branch, and a single workflow edited in the meantime is enough for the
+  # promotion to be refused. A branch kept on the commit of each version keeps
+  # its workflow files on a branch for as long as a channel may move onto it.
+  #
+  # It is created as soon as the tag arrives, while the tagged commit still
+  # holds the workflow files of the branch it was tagged on: that is the moment
+  # the workflow token is allowed to create it.
+  keep-version-branch:
+    name: Keep the version on a branch
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      # Betas and the others are counted apart, since each kind feeds its own
+      # channel. Three per kind lets a channel move back onto a recent version.
+      KEEP: 3
+    steps:
+      - name: Create the branch on the tagged commit
+        run: |
+          branch="versions/${GITHUB_REF_NAME#release-}"
+          # The commit itself, rather than the annotated tag object the tag
+          # points at, which a branch cannot point at.
+          commit="$(gh api "repos/$GH_REPO/commits/$GITHUB_REF_NAME" --jq '.sha')"
+
+          if existing="$(gh api "repos/$GH_REPO/git/ref/heads/$branch" --jq '.object.sha' 2> /dev/null)"; then
+            if [ "$existing" != "$commit" ]; then
+              echo "$branch already exists, on $existing rather than on $commit." >&2
+              exit 1
+            fi
+            echo "$branch is already on $commit."
+          elif gh api "repos/$GH_REPO/git/refs" -f "ref=refs/heads/$branch" -f "sha=$commit" > /dev/null; then
+            echo "Created $branch on $commit."
+          else
+            echo "GitHub refused to create $branch on $commit: a workflow file has most likely changed on every branch since the tag was pushed." >&2
+            echo "Create it from GitHub Desktop on that commit, or no channel will be able to move onto this version." >&2
+            exit 1
+          fi
+
+      - name: Drop the branches of older versions
+        run: |
+          version="${GITHUB_REF_NAME#release-}"
+
+          gh api --paginate "repos/$GH_REPO/git/matching-refs/heads/versions/" \
+            --jq '.[].ref | ltrimstr("refs/heads/versions/")' > branches.txt
+
+          case "$version" in
+            *beta*) grep 'beta' branches.txt > same-kind.txt || true ;;
+            *) grep -v 'beta' branches.txt > same-kind.txt || true ;;
+          esac
+          sort --version-sort --reverse same-kind.txt | tail -n "+$((KEEP + 1))" > older.txt
+
+          while read -r old; do
+            if gh api --method DELETE "repos/$GH_REPO/git/refs/heads/versions/$old" > /dev/null; then
+              echo "Deleted versions/$old."
+            else
+              echo "::warning::Could not delete versions/$old."
+            fi
+          done < older.txt
