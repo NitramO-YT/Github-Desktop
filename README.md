@@ -59,7 +59,7 @@ Each release provides, for x86_64:
 - a `.deb` package, for Debian, Ubuntu and their derivatives;
 - a `.rpm` package, for Fedora, openSUSE and their derivatives;
 - an `.AppImage`, for any distribution;
-- a `.flatpak` bundle, for any distribution with Flatpak, except in the Stable release and in the versions built before it was added.
+- a `.flatpak` bundle, for any distribution with Flatpak, in the versions built since it was added. The Stable release offers `github-desktop-stable.flatpakref` instead, for the reason given below.
 
 Each file comes with a `.sha256` checksum file.
 
@@ -117,7 +117,7 @@ On Ubuntu 24.04 and its derivatives, the AppImage needs one extra step before it
 
 To check a download, put its `.sha256` file next to it and run `sha256sum -c <file>.sha256`.
 
-A downloaded `.deb`, `.rpm` or AppImage is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead. The `.flatpak` bundle is the exception: installing it subscribes to the package repository, on the latest channel, or on beta for a beta, and `flatpak update` then brings the versions that follow. That is why the Stable release leaves it out: its page gives instead the command above, which follows the stable channel.
+A downloaded `.deb`, `.rpm` or AppImage is not updated automatically. To update, download the new version from the same link and install it the same way, or install from the package repository instead. The `.flatpak` bundle is the exception: installing it subscribes to the package repository, on the latest channel, or on beta for a beta, and `flatpak update` then brings the versions that follow. That is why the Stable release leaves it out, and offers `github-desktop-stable.flatpakref` instead: opened, it installs the stable channel, like the command above.
 
 ### Saving your credentials
 
