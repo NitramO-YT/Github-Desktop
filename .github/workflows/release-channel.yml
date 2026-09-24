@@ -46,6 +46,7 @@ jobs:
       contents: write
     outputs:
       version: ${{ steps.move.outputs.version }}
+      flatpak: ${{ steps.copy.outputs.flatpak }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
@@ -94,6 +95,7 @@ jobs:
           echo "$SOURCE_TAG was published $age_days day(s) ago."
 
       - name: Copy the files of that version
+        id: copy
         run: |
           mkdir assets
           gh release download "$SOURCE_TAG" --dir assets
@@ -101,10 +103,12 @@ jobs:
           # The Flatpak of a version subscribes whoever installs it to latest,
           # where every version comes out before stable. Offered on the stable
           # release, it would move them off stable without a word, so that
-          # release names the stable branch of the repository instead.
+          # release offers the .flatpakref of the stable branch instead, which
+          # the last job attaches once the repository holds that branch.
           if [ "$CHANNEL" = "stable" ] && compgen -G 'assets/*.flatpak' > /dev/null; then
             rm assets/*.flatpak assets/*.flatpak.sha256
             echo "FLATPAK_REF=https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref" >> "$GITHUB_ENV"
+            echo "flatpak=true" >> "$GITHUB_OUTPUT"
           fi
           ls -l assets
 
@@ -123,7 +127,7 @@ jobs:
             title="Stable: GitHub Desktop for Linux $version"
             notes="This release always holds the current stable version, and its address never changes. It currently holds [$version](../../releases/tag/$SOURCE_TAG)."
             if [ -n "${FLATPAK_REF:-}" ]; then
-              notes+=$'\n\n'"To follow the stable channel with Flatpak, install it from the package repository: \`flatpak install --user $FLATPAK_REF\`"
+              notes+=$'\n\n'"To follow the stable channel with Flatpak, open \`github-desktop-stable.flatpakref\` below, or run \`flatpak install --user $FLATPAK_REF\`"
             fi
             extra=()
           else
@@ -194,3 +198,27 @@ jobs:
       version: ${{ needs.promote.outputs.version }}
       channel: ${{ inputs.channel }}
     secrets: inherit
+
+  # The .flatpakref the stable release offers is the one the repository serves,
+  # written by build-flatpak-repo.sh alongside the branch it points at. It is
+  # attached only once that branch holds the version, so that the file works
+  # from the moment anyone can download it.
+  stable-flatpakref:
+    name: Attach the Flatpak of the stable channel
+    needs: [promote, repository]
+    if: inputs.channel == 'stable' && needs.promote.outputs.flatpak == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Attach github-desktop-stable.flatpakref to the stable release
+        run: |
+          # The query string gets past the cache in front of the bucket, which
+          # may still answer from before the repository held a stable branch.
+          curl -fsS --retry 3 -o github-desktop-stable.flatpakref \
+            "https://packages-github-desktop.nitramo.fr/flatpak/github-desktop-stable.flatpakref?t=$(date +%s)"
+          grep -qx 'Branch=stable' github-desktop-stable.flatpakref
+          gh release upload stable github-desktop-stable.flatpakref --clobber
