@@ -11,6 +11,7 @@
   "releases": {
     "3.6.7-beta3-linux1": [
       "Preview build, made from the upstream 3.6.7 beta 3: it carries what the next release will bring, and the bugs a beta comes with",
+      "The installed app keeps its size of earlier builds: the upstream beta copies the commands of its bundled git in full instead of linking them, which doubles that size, and this build keeps them as links",
       "Also available as a Flatpak, from the beta channel of the package repository or as a .flatpak file: either way, flatpak update brings the betas that follow",
       "The package repository serves the .deb, the .rpm and the Flatpak on its beta channel, and keeps them up to date through apt, dnf or flatpak: <https://packages-github-desktop.nitramo.fr/>",
       "The .deb package is numbered below the 3.6.7 release it precedes, so that apt moves on to that release once it is out",

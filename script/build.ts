@@ -220,7 +220,12 @@ async function packageApp() {
     dir: outRoot,
     overwrite: true,
     tmpdir: false,
-    derefSymlinks: true,
+    // On Linux the links stay links: the bundled git ships most of its
+    // commands as relative links to one binary, and copying them doubles the
+    // size of the installed app. @electron/packager 20 keeps them relative
+    // only through patches/@electron+packager+20.3.0.patch, which carries
+    // electron/packager#1964 until a release includes it.
+    derefSymlinks: process.platform !== 'linux',
     prune: false, // We'll prune them ourselves below.
     ignore: [
       new RegExp('/node_modules/electron($|/)'),
