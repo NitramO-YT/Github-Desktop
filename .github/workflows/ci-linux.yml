@@ -94,6 +94,30 @@ jobs:
       - name: Build production app
         run: yarn build:prod
 
+      # The git bundled with the app ships most of its commands as relative
+      # links to a single binary. @electron/packager 20 turns such a link into
+      # an absolute path into this runner, broken on every other machine, and
+      # derefSymlinks replaces it with a full copy, which doubles the size of
+      # the installed app. build.ts and the patch of @electron/packager keep
+      # the links as written; this check fails the build if either goes away.
+      - name: Check the links of the bundled git
+        run: |
+          git_dir="dist/github-desktop-linux-${TARGET_ARCH}/resources/app/git"
+          links="$(find "$git_dir" -type l | wc -l)"
+          absolute="$(find "$git_dir" -type l -lname '/*')"
+          broken="$(find -L "$git_dir" -type l)"
+
+          if [ "$links" -eq 0 ]; then
+            echo "The bundled git holds no link: its commands were copied in full." >&2
+            exit 1
+          fi
+          if [ -n "$absolute" ] || [ -n "$broken" ]; then
+            echo "The bundled git holds links that are absolute or lead nowhere:" >&2
+            printf '%s\n' "$absolute" "$broken" | sed '/^$/d' | sort -u | head -20 >&2
+            exit 1
+          fi
+          echo "$links links in the bundled git, all relative and resolved."
+
       - name: Prepare testing environment
         run: yarn test:setup
 
