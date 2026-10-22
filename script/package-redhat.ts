@@ -8,6 +8,7 @@ import { rename } from 'fs/promises'
 
 import { getVersion } from '../app/package-info'
 import { getDistPath, getDistRoot } from './dist-info'
+import { withPreReleaseTilde } from './package-version'
 
 function getArchitecture() {
   const arch = process.env.npm_config_arch || process.arch
@@ -30,6 +31,7 @@ type RedhatOptions = {
   dest: string
   arch: string
   // optional
+  version?: string
   description?: string
   productDescription?: string
   categories?: Array<string>
@@ -49,6 +51,7 @@ const options: RedhatOptions = {
   src: getDistPath(),
   dest: distRoot,
   arch: getArchitecture(),
+  version: withPreReleaseTilde(getVersion()),
   description: 'Simple collaboration from your desktop',
   productDescription:
     'This is the unofficial port of GitHub Desktop for Linux distributions',

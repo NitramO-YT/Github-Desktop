@@ -8,6 +8,7 @@ import { rename } from 'fs/promises'
 
 import { getVersion } from '../app/package-info'
 import { getDistPath, getDistRoot } from './dist-info'
+import { withPreReleaseTilde } from './package-version'
 
 function getArchitecture() {
   const arch = process.env.npm_config_arch || process.arch
@@ -22,22 +23,6 @@ function getArchitecture() {
 }
 
 const distRoot = getDistRoot()
-
-/**
- * Turns a pre-release marker into the form Debian orders correctly.
- *
- * Debian reads a tilde as "lower than nothing", which is how `3.6.7~beta2`
- * sorts below `3.6.7`. Without it a beta sorts *above* the final release of the
- * same number, and apt then refuses to move a beta user onto the stable
- * version, seeing a downgrade.
- *
- * electron-installer-debian applies this itself, but only to a marker that ends
- * the version string. The -linuxN suffix this fork appends leaves the marker in
- * the middle, where its rule no longer matches.
- */
-function toDebianVersion(version: string): string {
-  return version.replace(/-((?:RC|rc|pre|dev|beta|alpha)[._+-]?\d*)-/, '~$1-')
-}
 
 // best guess based on documentation
 type DebianOptions = {
@@ -70,7 +55,7 @@ const options: DebianOptions = {
   src: getDistPath(),
   dest: distRoot,
   arch: getArchitecture(),
-  version: toDebianVersion(getVersion()),
+  version: withPreReleaseTilde(getVersion()),
   description: 'Simple collaboration from your desktop',
   productDescription:
     'This is the unofficial port of GitHub Desktop for Linux distributions',
