@@ -9,8 +9,18 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.6.8-beta4-linux1": [
+      "Preview build, made from the upstream 3.6.8 beta 4: it carries what the next release will bring, and the bugs a beta comes with",
+      "The bundled git keeps its commands as links, as in earlier builds: the upstream beta copies them in full instead, which doubles the size of the installed app",
+      "Also available as a Flatpak, from the beta channel of the package repository or as a .flatpak file: either way, flatpak update brings the betas that follow",
+      "The package repository serves the .deb, the .rpm and the Flatpak on its beta channel, and keeps them up to date through apt, dnf or flatpak: <https://packages-github-desktop.nitramo.fr/>",
+      "The .deb and .rpm packages are numbered below the 3.6.8 release they precede, so that apt and dnf move on to that release once it is out",
+      "Beta channel features are enabled, as in the official beta builds",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.7-linux1": [
-      "The installed app keeps its size of earlier builds: upstream 3.6.7 copies the commands of its bundled git in full instead of linking them, which doubles that size, and this build keeps them as links",
+      "The bundled git keeps its commands as links, as in earlier builds: upstream 3.6.7 copies them in full instead, which doubles the size of the installed app",
       "Also available as a Flatpak, from the package repository or as a .flatpak file: either way, flatpak update brings the versions that follow",
       "The package repository serves the .deb, the .rpm and the Flatpak, and keeps them up to date through apt, dnf or flatpak: <https://packages-github-desktop.nitramo.fr/>",
       "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
