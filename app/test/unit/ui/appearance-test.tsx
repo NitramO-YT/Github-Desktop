@@ -25,6 +25,8 @@ function renderAppearance(alwaysShowWorktreeList = false) {
     onSelectedNumberFormatChanged: () => {},
     preferAbsoluteDates: false,
     onPreferAbsoluteDatesChanged: () => {},
+    titleBarStyle: 'native' as const,
+    onTitleBarStyleChanged: () => {},
     alwaysShowWorktreeList,
     onAlwaysShowWorktreeListChanged: (value: boolean) => changes.push(value),
   }
