@@ -87,7 +87,7 @@ jobs:
       # Several steps below, and the page renderer, are written in JavaScript.
       # Pinning the version the project already asks for keeps them from
       # depending on whatever the runner image happens to ship.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
 
