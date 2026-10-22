@@ -13,6 +13,8 @@ import { deserializeAccountCredential } from '../account-credential'
 import {
   AccountRequiresSignInError,
   CredentialSessions,
+  IAccountTokenExpiration,
+  TokenRefreshEvent,
   refreshMargin,
 } from '../credential-sessions'
 
@@ -99,6 +101,7 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
         requireSignIn: this.requireSignIn,
         onTokenRenewed: this.onTokenRenewed,
         onSignedIn: this.onSignedIn,
+        onTokenRefreshEvent: event => this.emitter.emit('token-refresh', event),
       },
       renewToken,
       now,
@@ -119,6 +122,13 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   /** Notify once per account when invalid credentials sign it out. */
   public onTokenInvalidated(callback: (account: Account) => void): Disposable {
     return this.emitter.on('token-invalidated', callback)
+  }
+
+  /** Subscribe to credential-free renewal events, excluding debug overrides. */
+  public onTokenRefreshEvent(
+    callback: (event: TokenRefreshEvent) => void
+  ): Disposable {
+    return this.emitter.on('token-refresh', callback)
   }
 
   /** Handle a rejected API token without leaving unhandled callback errors. */
@@ -181,6 +191,23 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
     return this.credentials.isRefreshable(account)
   }
 
+  /** Read test-dialog expiry metadata without acquiring or refreshing a token. */
+  public async getTokenExpirationForTesting(
+    account: Account
+  ): Promise<IAccountTokenExpiration> {
+    await this.loadingPromise
+    return this.credentials.getTokenExpirationForTesting(account)
+  }
+
+  /** Apply or reset a session-only access-token expiry override for testing. */
+  public async setTokenExpirationForTesting(
+    account: Account,
+    expiresAt: number | undefined
+  ): Promise<IAccountTokenExpiration> {
+    await this.loadingPromise
+    return this.credentials.setTokenExpirationForTesting(account, expiresAt)
+  }
+
   /**
    * Bind fresh access tokens and expiry metadata to the account's issuing session.
    *
@@ -217,6 +244,9 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
     if (retired === null) {
       return null
     }
+    log.info(
+      `[AccountsStore] signing out account ${retired.login} (${retired.name}) because its credentials can no longer be used`
+    )
     this.emitter.emit(
       'token-invalidated',
       this.credentials.inheritSession(account, account.withToken(''))

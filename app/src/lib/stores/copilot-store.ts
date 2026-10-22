@@ -5,6 +5,7 @@ import {
   AssistantMessageEvent,
   MessageOptions,
   SessionConfig,
+  ModelBillingTokenPrices,
   GitHubTokenProvider,
 } from '@github/copilot-sdk'
 import { AccountsStore } from './accounts-store'
@@ -45,11 +46,7 @@ import { BaseStore } from './base-store'
 import { IRepoRulesMetadataRule } from '../../models/repo-rules'
 import { pathExists } from '../path-exists'
 import { enableCopilotSdkCommitMessageGeneration } from '../feature-flag'
-import type {
-  AccountQuotaSnapshot,
-  Model,
-  ModelBillingTokenPrices,
-} from '@github/copilot-sdk/dist/generated/rpc'
+import type { AccountQuotaSnapshot, Model } from '../copilot/types'
 import { isGHE } from '../endpoint-capabilities'
 import {
   CopilotConflictResolutionError,
@@ -246,24 +243,28 @@ export function getCopilotGHHost(account: Account): string | undefined {
 
 const CopilotTokenRefreshMarginMs = 60 * 60 * 1000
 const CopilotTokenLifetimeBufferMs = 60 * 1000
+const CopilotTokenRoundingBufferMs = 1000
 
 /** Supply only access tokens to SDK sessions, with aligned renewal deadlines. */
 export function createCopilotTokenProvider(
   accountsStore: AccountsStore,
   account: Account
 ): GitHubTokenProvider | undefined {
-  // The SDK uses a one-hour preflight margin and doesn't retry rejected
-  // tokens. Report the IPC buffer as already spent so its cached-token
-  // deadline matches Desktop's renewal deadline.
+  // The SDK requires whole seconds and uses a one-hour preflight margin.
+  // Reserve rounding slack and report the IPC buffer as already spent so
+  // its cached-token refresh cannot precede Desktop's renewal deadline.
   const getToken = accountsStore.createTokenGetter(
     account,
-    CopilotTokenRefreshMarginMs + CopilotTokenLifetimeBufferMs
+    CopilotTokenRefreshMarginMs +
+      CopilotTokenLifetimeBufferMs +
+      CopilotTokenRoundingBufferMs
   )
   if (!accountsStore.isRefreshable(account)) {
     return undefined
   }
+  const expectedHost = getCopilotGHHost(account) ?? 'github.com'
   return async ({ host }) => {
-    if (host !== (getCopilotGHHost(account) ?? 'github.com')) {
+    if (host !== expectedHost && host !== `https://${expectedHost}`) {
       throw new Error(
         'Copilot requested credentials for an unexpected GitHub host.'
       )
@@ -274,9 +275,14 @@ export function createCopilotTokenProvider(
     const expiresIn =
       expiresAt === undefined
         ? 0
-        : (expiresAt - Date.now() - CopilotTokenLifetimeBufferMs) / 1000
+        : Math.floor(
+            (expiresAt - Date.now() - CopilotTokenLifetimeBufferMs) / 1000
+          )
     // Fail here with a clear message instead of in the SDK.
-    if (expiresIn <= CopilotTokenRefreshMarginMs / 1000) {
+    if (
+      !Number.isSafeInteger(expiresIn) ||
+      expiresIn <= CopilotTokenRefreshMarginMs / 1000
+    ) {
       throw new Error(
         'GitHub returned credentials without enough lifetime for a Copilot session.'
       )
@@ -937,7 +943,10 @@ export class CopilotStore extends BaseStore {
   private createSession(client: CopilotClient, config: SessionConfig) {
     return client.createSession({
       ...config,
-      gitHubTokenProvider: this.clientTokenProviders.get(client),
+      gitHubTokenProvider:
+        config.provider === undefined
+          ? this.clientTokenProviders.get(client)
+          : undefined,
     })
   }
 

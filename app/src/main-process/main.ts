@@ -242,25 +242,6 @@ if (__DARWIN__) {
   })
 }
 
-/**
- * Look through the arguments for something that appears to be an app url, i.e.
- * a well-formed url using one of the protocols we've registered for.
- */
-function findAppURL(argv: ReadonlyArray<string>) {
-  const prefixes = Array.from(possibleProtocols, p => `${p}://`)
-  return argv.find(arg => {
-    if (prefixes.some(p => arg.startsWith(p))) {
-      try {
-        new URL(arg)
-        return true
-      } catch (e) {
-        log.error(`Unable to parse argument as URL: ${arg}`)
-      }
-    }
-    return false
-  })
-}
-
 async function handleCommandLineArguments(argv: string[]) {
   const args = parseCommandLineArgs(argv, {
     boolean: ['protocol-launcher'],
@@ -270,8 +251,18 @@ async function handleCommandLineArguments(argv: string[]) {
   // `[executable path] --protocol-launcher "%1"`. Note that extra command
   // line arguments might be added by Chromium
   // (https://electronjs.org/docs/api/app#event-second-instance).
+  const isWindowsProtocolLaunch =
+    __WIN32__ && args['protocol-launcher'] === true
 
-  if (__WIN32__ && args['protocol-launcher'] === true) {
+  // On Linux the protocol handler is registered through a .desktop file
+  // (`Exec=... %u`), so the URL is passed as a plain argument without
+  // --protocol-launcher. macOS receives URLs through the `open-url` event
+  // instead, which Electron doesn't emit on Linux.
+  const prefixes = Array.from(possibleProtocols, p => `${p}://`)
+  const isLinuxProtocolLaunch =
+    __LINUX__ && argv.some(arg => prefixes.some(p => arg.startsWith(p)))
+
+  if (isWindowsProtocolLaunch || isLinuxProtocolLaunch) {
     // On Windows we'll end up getting called with something like
     // `--protocol-launcher --allow-file-access-from-files x-github-client://..`
     // which minimist naturally interprets as
@@ -282,7 +273,17 @@ async function handleCommandLineArguments(argv: string[]) {
     // sure that Chromium won't add more switches later on which is why we have
     // to resort to looking through all arguments looking for something that
     // appears to be an app url.
-    const matchingUrl = findAppURL(argv)
+    const matchingUrl = argv.find(arg => {
+      if (prefixes.some(p => arg.startsWith(p))) {
+        try {
+          new URL(arg)
+          return true
+        } catch {
+          log.error(`Unable to parse argument as URL: ${arg}`)
+        }
+      }
+      return false
+    })
 
     if (matchingUrl) {
       handleAppURL(matchingUrl)
@@ -292,19 +293,6 @@ async function handleCommandLineArguments(argv: string[]) {
     // If --protocol-launcher is present we always want to bail and not
     // risk a smuggled cli switch
     return
-  } else if (__LINUX__) {
-    // Desktop registers its protocol handlers on Linux through the desktop
-    // entry (`Exec=github-desktop %U`), so the url arrives as a plain argument
-    // without a --protocol-launcher switch to key off of. When we find one we
-    // bail just like we do on Windows rather than risk a smuggled cli switch.
-    // Launching without an app url is the normal case here though, so we carry
-    // on with the cli arguments below when there's none.
-    const matchingUrl = findAppURL(argv)
-
-    if (matchingUrl) {
-      handleAppURL(matchingUrl)
-      return
-    }
   }
 
   if (typeof args['cli-open'] === 'string') {

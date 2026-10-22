@@ -670,13 +670,6 @@ export interface IAPIComment {
   readonly created_at: string
 }
 
-/** The server response when handling the OAuth callback (with code) to obtain an access token */
-interface IAPIAccessToken {
-  readonly access_token: string
-  readonly scope: string
-  readonly token_type: string
-}
-
 /** The response we receive from fetching mentionables. */
 interface IAPIMentionablesResponse {
   readonly etag: string | undefined
@@ -875,8 +868,8 @@ export class API {
     copilotEndpoint?: string,
     /**
      * Use the account store to resolve/refresh tokens and handle rejected tokens.
-     * Disable for the anonymous public-repository fallback: it must use the
-     * supplied token, not another signed-in account's token.
+     * Disable for new sign-in tokens and the anonymous public-repository fallback:
+     * those must use the supplied token, not another signed-in account's token.
      */
     private readonly manageAccountToken = true
   ) {
@@ -1479,7 +1472,7 @@ export class API {
     const response = await this.ghRequest('GET', path, { customHeaders })
     try {
       return await parsedResponse<IAPIWorkflowRuns>(response)
-    } catch (err) {
+    } catch {
       log.debug(
         `Failed fetching workflow runs for ${branchName} (${owner}/${name})`
       )
@@ -1516,7 +1509,7 @@ export class API {
       if (apiWorkflowRuns.workflow_runs.length > 0) {
         return apiWorkflowRuns.workflow_runs[0]
       }
-    } catch (err) {
+    } catch {
       log.debug(
         `Failed fetching workflow runs for ${checkSuiteId} (${owner}/${name})`
       )
@@ -1541,7 +1534,7 @@ export class API {
     })
     try {
       return await parsedResponse<IAPIWorkflowJobs>(response)
-    } catch (err) {
+    } catch {
       log.debug(
         `Failed fetching workflow jobs (${owner}/${name}) workflow run: ${workflowRunId}`
       )
@@ -1644,7 +1637,7 @@ export class API {
 
     try {
       return await parsedResponse<IAPICheckSuite>(response)
-    } catch (_) {
+    } catch {
       log.debug(
         `[fetchCheckSuite] Failed fetch check suite id ${checkSuiteId} (${owner}/${name})`
       )
@@ -2283,9 +2276,10 @@ export async function deleteToken(
 /** Fetch the user authenticated by the token. */
 export async function fetchUser(
   endpoint: string,
-  token: string
+  token: string,
+  isNewAuthorization = false
 ): Promise<Account> {
-  const api = new API(endpoint, token)
+  const api = new API(endpoint, token, undefined, !isNewAuthorization)
   try {
     const [user, emails, copilotInfo, features] = await Promise.all([
       api.fetchAccount(),
@@ -2333,7 +2327,8 @@ export function getEndpointForRepository(url: string): string {
  * Get the URL for the HTML site. For example:
  *
  * https://api.github.com -> https://github.com
- * http://github.mycompany.com/api -> http://github.mycompany.com/
+ * http://github.mycompany.com/api -> http://github.mycompany.com
+ * https://github.mycompany.com:8443/api/v3 -> https://github.mycompany.com:8443
  */
 export function getHTMLURL(endpoint: string): string {
   if (envHTMLURL !== undefined) {
@@ -2352,7 +2347,7 @@ export function getHTMLURL(endpoint: string): string {
     return 'https://github.com'
   } else {
     if (isGHE(endpoint)) {
-      const url = new window.URL(endpoint)
+      const url = new URL.URL(endpoint)
 
       url.pathname = '/'
 
@@ -2363,8 +2358,9 @@ export function getHTMLURL(endpoint: string): string {
       return url.toString()
     }
 
-    const parsed = URL.parse(endpoint)
-    return `${parsed.protocol}//${parsed.hostname}`
+    // Use the origin rather than the hostname so that GitHub Enterprise
+    // Server instances running on a non-default port retain their port.
+    return new URL.URL(endpoint).origin
   }
 }
 
@@ -2406,42 +2402,21 @@ export function getAccountForEndpoint(
 
 export function getOAuthAuthorizationURL(
   endpoint: string,
-  state: string
+  state: string,
+  shortLived: boolean
 ): string {
   const urlBase = getHTMLURL(endpoint)
-  const scope = encodeURIComponent(oauthScopes.join(' '))
+  const scope = encodeURIComponent(
+    (shortLived && !isGHES(endpoint)
+      ? [...oauthScopes, 'offline_access']
+      : oauthScopes
+    ).join(' ')
+  )
 
   return new window.URL(
     `/login/oauth/authorize?client_id=${ClientID}&scope=${scope}&state=${state}`,
     urlBase
   ).toString()
-}
-
-export async function requestOAuthToken(
-  endpoint: string,
-  code: string
-): Promise<string | null> {
-  try {
-    const urlBase = getHTMLURL(endpoint)
-    const response = await request(
-      urlBase,
-      null,
-      'POST',
-      'login/oauth/access_token',
-      {
-        client_id: ClientID,
-        client_secret: ClientSecret,
-        code: code,
-      }
-    )
-    tryUpdateEndpointVersionFromResponse(endpoint, response)
-
-    const result = await parsedResponse<IAPIAccessToken>(response)
-    return result.access_token
-  } catch (e) {
-    log.warn(`requestOAuthToken: failed with endpoint ${endpoint}`, e)
-    return null
-  }
 }
 
 function tryUpdateEndpointVersionFromResponse(
