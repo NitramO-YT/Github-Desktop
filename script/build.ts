@@ -2,7 +2,6 @@
 /// <reference path="./globals.d.ts" />
 
 import * as cp from 'child_process'
-import packager, { Options } from '@electron/packager'
 import frontMatter from 'front-matter'
 import * as path from 'path'
 import { getPrintenvzPath } from 'printenvz'
@@ -21,6 +20,19 @@ export interface ILicense {
   readonly featured: boolean
   readonly body: string
   readonly hidden: boolean
+}
+
+type DesktopPackageArch = 'arm64' | 'x64'
+type DesktopPackagePlatform = 'darwin' | 'linux' | 'win32'
+
+interface IDesktopPackagerModule {
+  readonly packager: (options: object) => Promise<ReadonlyArray<string>>
+}
+
+interface IOSXNotarizeOptions {
+  readonly appleId: string
+  readonly appleIdPassword: string
+  readonly teamId: string
 }
 
 import {
@@ -53,6 +65,7 @@ import { updateLicenseDump } from './licenses/update-license-dump'
 import { verifyInjectedSassVariables } from './validate-sass/validate-all'
 import { join } from 'path'
 import assert from 'assert'
+import { copyCopilotDependency } from './copilot'
 
 const isPublishableBuild = isPublishable()
 const isDevelopmentBuild = getChannel() === 'development'
@@ -128,10 +141,15 @@ verifyInjectedSassVariables(outRoot)
     console.log(`Built to ${appPaths}`)
   })
 
-function packageApp() {
+async function packageApp() {
+  const packagerModuleName = '@electron/packager'
+  const { packager }: IDesktopPackagerModule = await import(packagerModuleName)
+
   // not sure if this is needed anywhere, so I'm just going to inline it here
   // for now and see what the future brings...
-  const toPackagePlatform = (platform: NodeJS.Platform) => {
+  const toPackagePlatform = (
+    platform: NodeJS.Platform
+  ): DesktopPackagePlatform => {
     if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
       return platform
     }
@@ -140,7 +158,7 @@ function packageApp() {
     )
   }
 
-  const getPackageArch = (): 'arm64' | 'x64' | 'armv7l' => {
+  const getPackageArch = (): DesktopPackageArch | 'armv7l' => {
     const arch = process.env.npm_config_arch || process.arch
 
     if (arch === 'arm64' || arch === 'x64') {
@@ -202,7 +220,7 @@ function packageApp() {
     dir: outRoot,
     overwrite: true,
     tmpdir: false,
-    derefSymlinks: false,
+    derefSymlinks: true,
     prune: false, // We'll prune them ourselves below.
     ignore: [
       new RegExp('/node_modules/electron($|/)'),
@@ -359,7 +377,12 @@ function copyDependencies() {
   )
 
   console.log('  Copying copilot…')
-  copyCopilotDependency()
+  copyCopilotDependency(
+    path.join(projectRoot, 'app', 'node_modules'),
+    path.join(outRoot, 'copilot'),
+    process.platform,
+    getDistArchitecture()
+  )
 
   // Dev builds for macOS require a SSH wrapper to use SSH_ASKPASS
   if (process.platform === 'darwin' && isDevelopmentBuild) {
@@ -496,7 +519,7 @@ ${licenseText}`
   rmSync(chooseALicense, { recursive: true, force: true })
 }
 
-function getNotarizationOptions(): Options['osxNotarize'] {
+function getNotarizationOptions(): IOSXNotarizeOptions | undefined {
   const {
     APPLE_ID: appleId,
     APPLE_ID_PASSWORD: appleIdPassword,
@@ -506,152 +529,4 @@ function getNotarizationOptions(): Options['osxNotarize'] {
   return appleId && appleIdPassword && teamId
     ? { appleId, appleIdPassword, teamId }
     : undefined
-}
-
-function copyCopilotDependency() {
-  const currentPlatform = process.platform
-  const currentArch = getDistArchitecture()
-
-  // The @github/copilot package now uses platform-specific optional
-  // dependencies (e.g. @github/copilot-darwin-arm64) that already contain only
-  // the binaries for the target platform, so we copy the appropriate one
-  // directly instead of the base @github/copilot package.
-  const copilotPkgDir = path.resolve(
-    projectRoot,
-    `app/node_modules/@github/copilot-${currentPlatform}-${currentArch}`
-  )
-
-  const copilotDestination = path.resolve(outRoot, 'copilot')
-  removeAndCopy(copilotPkgDir, copilotDestination)
-
-  // Platforms and architectures to remove from prebuild directories. This is
-  // an exhaustive list of all non-current platforms rather than an allowlist,
-  // because some packages (clipboard, pvrecorder) have entries without
-  // standard platform identifiers that we must preserve.
-  const nonValidPlatforms = [
-    'darwin',
-    'linux',
-    'win32',
-    'freebsd',
-    'openbsd',
-    'musl',
-  ].filter(p => p !== currentPlatform)
-  const nonValidArchitectures = [
-    'x64',
-    'arm64',
-    'ia32',
-    'armhf',
-    'riscv64',
-    'loong64',
-  ].filter(a => a !== currentArch)
-
-  // Also map platform names for packages that use non-standard naming
-  // (e.g., pvrecorder uses "mac" and "windows" instead of "darwin"/"win32")
-  const platformAliases: Record<string, string> = {
-    darwin: 'mac',
-    win32: 'windows',
-  }
-  const currentPlatformAlias = platformAliases[currentPlatform]
-  const nonValidPlatformAliases = Object.values(platformAliases).filter(
-    a => a !== currentPlatformAlias
-  )
-
-  // Removing unnecessary prebuild binaries from the copilot package to reduce
-  // bundle size and prevent signing failures on Windows (signtool can't sign
-  // non-PE binaries from other platforms).
-  const prebuildsDirs = [
-    path.join(copilotDestination, 'prebuilds'),
-    path.join(copilotDestination, 'ripgrep', 'bin'),
-    path.join(copilotDestination, 'clipboard', 'node_modules', '@teddyzhu'),
-    path.join(
-      copilotDestination,
-      'clipboard',
-      'node_modules',
-      '@teddyzhu',
-      'clipboard'
-    ),
-    path.join(
-      copilotDestination,
-      'foundry-local-sdk',
-      'node_modules',
-      'foundry-local-sdk',
-      'prebuilds'
-    ),
-    path.join(
-      copilotDestination,
-      'pvrecorder',
-      'node_modules',
-      '@picovoice',
-      'pvrecorder-node',
-      'lib'
-    ),
-  ]
-
-  for (const prebuildsDir of prebuildsDirs) {
-    if (!existsSync(prebuildsDir)) {
-      continue
-    }
-
-    const prebuilds = readdirSync(prebuildsDir)
-    for (const prebuild of prebuilds) {
-      const shouldRemove =
-        nonValidPlatforms.some(p => prebuild.includes(p)) ||
-        nonValidArchitectures.some(a => prebuild.includes(a)) ||
-        nonValidPlatformAliases.some(a => prebuild === a)
-
-      if (shouldRemove) {
-        rmSync(path.join(prebuildsDir, prebuild), {
-          recursive: true,
-          force: true,
-        })
-      }
-    }
-  }
-
-  // mxc cleanup (only if the mxc-bin directory exists in this copilot version)
-  const mxcDir = path.join(copilotDestination, 'mxc-bin')
-  if (!existsSync(mxcDir)) {
-    return
-  }
-  // Read subdirs, delete the one that has a name that is not a valid architecture
-  const mxcSubdirs = readdirSync(mxcDir)
-  for (const subdir of mxcSubdirs) {
-    if (nonValidArchitectures.some(a => subdir.includes(a))) {
-      rmSync(path.join(mxcDir, subdir), {
-        recursive: true,
-        force: true,
-      })
-    }
-  }
-  // Then, read the subdir with the valid architecture and:
-  // - leave only exe and dll files for Windows platforms
-  // - on macOS, delete exe and dll files and also linux-test-proxy and lxc-exec
-  // - on Linux, delete exe and dll files and also mxc-exec-mac
-  const mxcArchSubdirPath = path.join(mxcDir, currentArch)
-  if (!existsSync(mxcArchSubdirPath)) {
-    return
-  }
-  const mxcFiles = readdirSync(mxcArchSubdirPath)
-  const isWindowsBinary = (file: string) =>
-    file.endsWith('.exe') || file.endsWith('.dll')
-  const isMacOSBinary = (file: string) => file === 'mxc-exec-mac'
-  const isLinuxBinary = (file: string) =>
-    file === 'linux-test-proxy' || file === 'lxc-exec'
-
-  for (const file of mxcFiles) {
-    const shouldRemove =
-      (currentPlatform === 'win32' &&
-        (isMacOSBinary(file) || isLinuxBinary(file))) ||
-      (currentPlatform === 'darwin' &&
-        (isWindowsBinary(file) || isLinuxBinary(file))) ||
-      (currentPlatform === 'linux' &&
-        (isWindowsBinary(file) || isMacOSBinary(file)))
-
-    if (shouldRemove) {
-      rmSync(path.join(mxcArchSubdirPath, file), {
-        recursive: true,
-        force: true,
-      })
-    }
-  }
 }
