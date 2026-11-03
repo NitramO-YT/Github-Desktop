@@ -490,7 +490,11 @@ describe('AppStore explicitly adding repositories', () => {
       })
 
       it('uses the current account after switching back to a worktree', async t => {
-        const { main } = await setupWorktree(t)
+        const { added: registered, main } = await setupWorktree(t)
+        // Switching must reach the linked worktree from the main repository,
+        // not through the repository setupWorktree registered for it, which
+        // has no GitHub repository and so no account to choose.
+        await stores.repositoriesStore.removeRepository(registered)
         const { listWorktrees } = await import('../../../src/lib/git/worktree')
         const { realpath } = await import('fs/promises')
         const mainPath = await realpath(main.path)
