@@ -145,13 +145,17 @@ build_rpm_channel() {
     --detach-sign --armor "$dir/repodata/repomd.xml"
 
   # Shipped in the repository so that a single curl into /etc/yum.repos.d is
-  # enough to subscribe, with no hand-written file to get wrong.
+  # enough to subscribe, with no hand-written file to get wrong. zypper also
+  # adds it straight from its address; without autorefresh it would never read
+  # the repository again on its own, and zypper update would miss every new
+  # version. dnf 4 and 5 read the file without a warning all the same.
   cat > "$dir/github-desktop.repo" <<EOF
 [github-desktop-$channel]
 name=$ORIGIN ($channel)
 baseurl=$BASE_URL/rpm/$channel
 enabled=1
 type=rpm
+autorefresh=1
 repo_gpgcheck=1
 gpgcheck=0
 gpgkey=$BASE_URL/gpg.key

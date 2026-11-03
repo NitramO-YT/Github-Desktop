@@ -299,9 +299,11 @@ jobs:
             --endpoint-url "$AWS_ENDPOINT_URL" \
             --cache-control 'public, max-age=31536000, immutable' \
             --size-only
+          # The .repo files are not packages: they go with the indexes below,
+          # kept for a few minutes rather than a year.
           aws s3 sync repo/rpm "s3://$BUCKET/rpm" \
             --endpoint-url "$AWS_ENDPOINT_URL" \
-            --exclude '*/repodata/*' \
+            --exclude '*/repodata/*' --exclude '*.repo' \
             --cache-control 'public, max-age=31536000, immutable' \
             --size-only
           # The objects and deltas of the Flatpak repository are named after
@@ -322,7 +324,18 @@ jobs:
           aws s3 sync repo/rpm "s3://$BUCKET/rpm" \
             --endpoint-url "$AWS_ENDPOINT_URL" \
             --cache-control 'public, max-age=300' \
-            --exclude '*' --include '*/repodata/*' --include '*.repo'
+            --exclude '*' --include '*/repodata/*'
+
+          # The AWS CLI knows no type for the .repo extension and sends the
+          # file without any, which browsers then download instead of showing.
+          # Sent as text, like gpg.key.
+          for file in repo/rpm/*/github-desktop.repo; do
+            channel="$(basename "$(dirname "$file")")"
+            aws s3 cp "$file" "s3://$BUCKET/rpm/$channel/github-desktop.repo" \
+              --endpoint-url "$AWS_ENDPOINT_URL" \
+              --content-type 'text/plain; charset=utf-8' \
+              --cache-control 'public, max-age=300'
+          done
 
           # The summary of the Flatpak repository and its signature change
           # together. Kept for a few minutes like the indexes above, one could
