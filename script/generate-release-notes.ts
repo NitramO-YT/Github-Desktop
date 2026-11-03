@@ -1,18 +1,24 @@
 /* eslint-disable no-sync */
 
+// This script stays CommonJS, required rather than imported, types included:
+// Node runs it with its own type stripping, and any import statement, even a
+// type-only one, makes it treat the file as an ES module. It then fails to
+// resolve './release-notes-changelog' without its extension, and with an
+// `import type` it does not run the script at all, without an error.
+type ReleaseNoteEntry = import('./release-notes-changelog').ReleaseNoteEntry
+type ReleaseNotesGroups = import('./release-notes-changelog').ReleaseNotesGroups
+
+const {
+  findPreviousLinuxBuild,
+  getUpstreamVersion,
+  groupUpstreamEntries,
+  isInitialTag,
+  selectUpstreamVersions,
+}: typeof import('./release-notes-changelog') = require('./release-notes-changelog')
+
 const glob = require('glob')
 const { basename, dirname, join } = require('path')
 const fs = require('fs')
-
-type ReleaseNotesGroupType = 'new' | 'added' | 'fixed' | 'improved' | 'removed'
-
-type ReleaseNotesGroups = Record<ReleaseNotesGroupType, Array<ReleaseNoteEntry>>
-
-type ReleaseNoteEntry = {
-  text: string
-  ids: Array<number>
-  contributor?: string
-}
 
 const PACKAGE_EXTENSIONS = ['.deb', '.rpm', '.AppImage']
 
@@ -20,11 +26,6 @@ const PACKAGE_EXTENSIONS = ['.deb', '.rpm', '.AppImage']
 // written. Its row of the download table is left as this line, which the job
 // that creates the release replaces once the Flatpak and its checksum exist.
 const FLATPAK_ROW = '<!-- flatpak -->'
-
-// A tag reads X.Y.Z-linuxN: the version of the upstream release this build
-// comes from, then the revision of the Linux build made from it. Declared up
-// here because the body of this script runs before the functions below it.
-const LINUX_REVISION = /-(linux|test)\d+$/
 
 const Glob = glob.GlobSync
 
@@ -84,10 +85,28 @@ console.log(
   `Found ${packages.length} packages, each with its checksum, in artifacts directory`
 )
 
-const releaseNotesByGroup = getReleaseGroups(releaseTagWithoutPrefix)
+const rootDir = dirname(__dirname)
+
+const linuxReleases = readLinuxChangelog()
+const linuxChanges = linuxReleases[releaseTagWithoutPrefix] ?? []
+
+// Every published build has its entry in linux-changelog.json, which is also
+// how the notes of the next build find the build their users had before it.
+if (linuxChanges.length === 0) {
+  console.error(
+    `🔴 No entry for ${releaseTagWithoutPrefix} in linux-changelog.json, which every published build needs. Aborting...`
+  )
+  process.exit(1)
+}
+
+const upstreamChanges = readUpstreamChanges(
+  releaseTagWithoutPrefix,
+  Object.keys(linuxReleases)
+)
 
 const draftReleaseNotes = generateDraftReleaseNotes(
-  releaseNotesByGroup,
+  upstreamChanges,
+  linuxChanges,
   releaseTagWithoutPrefix,
   packages
 )
@@ -99,122 +118,75 @@ console.log(
   `✅ All done! The release notes have been written to ${releaseNotesPath}`
 )
 
-function extractIds(str: string): Array<number> {
-  const idRegex = /#(\d+)/g
+function readLinuxChangelog(): Record<string, Array<string>> {
+  const changelogPath = join(rootDir, 'linux-changelog.json')
 
-  const idArray = new Array<number>()
-  let match
-
-  while ((match = idRegex.exec(str))) {
-    const textValue = match[1].trim()
-    const numValue = parseInt(textValue, 10)
-    if (!isNaN(numValue)) {
-      idArray.push(numValue)
-    }
+  if (!fs.existsSync(changelogPath)) {
+    console.error(`🔴 linux-changelog.json not found. Aborting...`)
+    process.exit(1)
   }
 
-  return idArray
+  return JSON.parse(fs.readFileSync(changelogPath, 'utf8'))['releases']
 }
 
-function parseCategory(str: string): ReleaseNotesGroupType | null {
-  const input = str.toLocaleLowerCase()
-  switch (input) {
-    case 'added':
-    case 'fixed':
-    case 'improved':
-    case 'new':
-    case 'removed':
-      return input
-    default:
-      return null
-  }
+type UpstreamChanges = {
+  groups: ReleaseNotesGroups
+  // The upstream versions whose entries make up the groups, newest first.
+  versions: Array<string>
+  // The build users had before this one, when versions were skipped since.
+  previousBuild: string | null
 }
 
-function isInitialTag(tag: string): boolean {
-  return tag.endsWith('-linux1') || tag.endsWith('-test1')
-}
-
-function getVersionWithoutSuffix(tag: string): string {
-  return tag.replace(LINUX_REVISION, '')
-}
-
-function getReleaseGroups(version: string): ReleaseNotesGroups {
-  if (!isInitialTag(version)) {
+/**
+ * Gathers what upstream changed for users of this build. Only the first build
+ * made from an upstream release carries it, which a later build of the same
+ * release would repeat word for word.
+ */
+function readUpstreamChanges(
+  tag: string,
+  linuxBuilds: ReadonlyArray<string>
+): UpstreamChanges {
+  if (!isInitialTag(tag)) {
     return {
-      new: [],
-      added: [],
-      fixed: [],
-      improved: [],
-      removed: [],
+      groups: groupUpstreamEntries([], {}, null),
+      versions: [],
+      previousBuild: null,
     }
   }
 
-  const upstreamVersion = getVersionWithoutSuffix(version)
-  const rootDir = dirname(__dirname)
+  const upstreamVersion = getUpstreamVersion(tag)
   const changelogFile = fs.readFileSync(join(rootDir, 'changelog.json'))
-  const changelogJson = JSON.parse(changelogFile)
-  const releases = changelogJson['releases']
-  const changelogForVersion: Array<string> | undefined =
-    releases[upstreamVersion]
+  const releases: Record<string, Array<string>> = JSON.parse(changelogFile)[
+    'releases'
+  ]
 
-  if (!changelogForVersion) {
+  if (!releases[upstreamVersion]) {
     console.error(
-      `🔴 Changelog version ${upstreamVersion} not found in changelog.json, which is required for publishing a release based off an upstream releease. Aborting...`
+      `🔴 Changelog version ${upstreamVersion} not found in changelog.json, which is required for publishing a release based off an upstream release. Aborting...`
     )
     process.exit(1)
   }
 
-  console.log(`found release notes`, changelogForVersion)
+  const previousBuild = findPreviousLinuxBuild(tag, linuxBuilds)
+  const previousUpstream =
+    previousBuild === null ? null : getUpstreamVersion(previousBuild)
+  const versions = selectUpstreamVersions(
+    upstreamVersion,
+    previousUpstream,
+    Object.keys(releases)
+  )
 
-  const releaseNotesByGroup: ReleaseNotesGroups = {
-    new: [],
-    added: [],
-    fixed: [],
-    improved: [],
-    removed: [],
+  console.log(
+    `upstream changes since ${
+      previousBuild ?? 'no earlier build'
+    }, from ${versions.join(', ')}`
+  )
+
+  return {
+    groups: groupUpstreamEntries(versions, releases, previousUpstream),
+    versions,
+    previousBuild,
   }
-
-  const releaseEntryExternalContributor = /\[(.*)\](.*)- (.*)\. Thanks (.*)!/
-  const releaseEntryRegex = /\[(.*)\](.*)- (.*)/
-
-  for (const entry of changelogForVersion) {
-    const externalMatch = releaseEntryExternalContributor.exec(entry)
-    if (externalMatch) {
-      const category = parseCategory(externalMatch[1])
-      const text = externalMatch[2].trim()
-      const ids = extractIds(externalMatch[3])
-      const contributor = externalMatch[4]
-
-      if (!category) {
-        console.warn(`unable to identify category for '${entry}'`)
-      } else {
-        releaseNotesByGroup[category].push({
-          text,
-          ids,
-          contributor,
-        })
-      }
-    } else {
-      const match = releaseEntryRegex.exec(entry)
-      if (match) {
-        const category = parseCategory(match[1])
-        const text = match[2].trim()
-        const ids = extractIds(match[3])
-        if (!category) {
-          console.warn(`unable to identify category for '${entry}'`)
-        } else {
-          releaseNotesByGroup[category].push({
-            text,
-            ids,
-          })
-        }
-      } else {
-        console.warn(`release entry does not match any format: '${entry}'`)
-      }
-    }
-  }
-
-  return releaseNotesByGroup
 }
 
 function formatReleaseNote(note: ReleaseNoteEntry): string {
@@ -247,15 +219,29 @@ function renderSection(name: string, items: Array<ReleaseNoteEntry>): string {
  * arrives from a search engine as often as from the repository, and nothing
  * else on the page says that these packages are not published by GitHub.
  */
-function renderHeader(tag: string): string {
-  const upstreamVersion = getVersionWithoutSuffix(tag)
-  const upstreamRelease = `<https://github.com/desktop/desktop/releases/tag/release-${upstreamVersion}>`
+function renderHeader(tag: string, upstream: UpstreamChanges): string {
+  const upstreamVersion = getUpstreamVersion(tag)
+  const releaseLink = (version: string) =>
+    `<https://github.com/desktop/desktop/releases/tag/release-${version}>`
 
-  // Only the first build made from an upstream release carries its changelog,
-  // which a later build of the same release would repeat word for word.
-  const upstreamChanges = isInitialTag(tag)
-    ? `They are not published by GitHub, and the sections below list what the upstream release changed: ${upstreamRelease}.`
-    : `They are not published by GitHub. What the upstream release changed is listed on its own release page: ${upstreamRelease}.`
+  let upstreamChanges: string
+  if (!isInitialTag(tag)) {
+    upstreamChanges = `They are not published by GitHub. What the upstream release changed is listed on its own release page: ${releaseLink(
+      upstreamVersion
+    )}.`
+  } else if (upstream.previousBuild !== null && upstream.versions.length > 1) {
+    // Users of this channel had the previous build, so they also get every
+    // upstream release made since, each of which has its own page.
+    const releases = [...upstream.versions]
+      .reverse()
+      .map(version => `- ${version}: ${releaseLink(version)}`)
+      .join('\n')
+    upstreamChanges = `They are not published by GitHub, and the sections below list what changed upstream since the previous Linux build, \`${upstream.previousBuild}\`, gathered from these upstream releases:\n\n${releases}`
+  } else {
+    upstreamChanges = `They are not published by GitHub, and the sections below list what the upstream release changed: ${releaseLink(
+      upstreamVersion
+    )}.`
+  }
 
   return `GitHub Desktop ${upstreamVersion} for Linux, build \`${tag}\`.
 
@@ -266,26 +252,9 @@ Which package to pick, what each one needs and the problems known to this build 
 
 /**
  * Renders what this Linux build adds on top of the upstream release, read from
- * linux-changelog.json. A version absent from that file simply has no such
- * section, which is what happens when a build carries nothing of its own.
+ * linux-changelog.json.
  */
-function renderLinuxChanges(tag: string): string {
-  const changelogPath = join(dirname(__dirname), 'linux-changelog.json')
-
-  if (!fs.existsSync(changelogPath)) {
-    return ''
-  }
-
-  const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'))
-  const entries: Array<string> = changelog['releases'][tag] ?? []
-
-  if (entries.length === 0) {
-    console.warn(
-      `no Linux changelog entry for ${tag}, the release notes will say nothing of what this build changes`
-    )
-    return ''
-  }
-
+function renderLinuxChanges(entries: ReadonlyArray<string>): string {
   return `## Linux changes in this build\n\n${entries
     .map(entry => `- ${entry}`)
     .join('\n')}`
@@ -321,19 +290,21 @@ To check a download, put its \`.sha256\` file next to it and run \`sha256sum -c 
  * Takes the release notes entries and the SHA entries, then merges them into the full draft release notes ✨
  */
 function generateDraftReleaseNotes(
-  releaseNotesGroups: ReleaseNotesGroups,
+  upstream: UpstreamChanges,
+  linuxChanges: ReadonlyArray<string>,
   tag: string,
   packagePaths: Array<string>
 ): string {
+  const { groups } = upstream
   const sections = [
-    renderHeader(tag),
+    renderHeader(tag, upstream),
     renderPackages(packagePaths),
-    renderLinuxChanges(tag),
-    renderSection('New', releaseNotesGroups.new),
-    renderSection('Added', releaseNotesGroups.added),
-    renderSection('Fixed', releaseNotesGroups.fixed),
-    renderSection('Improved', releaseNotesGroups.improved),
-    renderSection('Removed', releaseNotesGroups.removed),
+    renderLinuxChanges(linuxChanges),
+    renderSection('New', groups.new),
+    renderSection('Added', groups.added),
+    renderSection('Fixed', groups.fixed),
+    renderSection('Improved', groups.improved),
+    renderSection('Removed', groups.removed),
   ]
 
   return `${sections.filter(section => section !== '').join('\n\n')}\n`
