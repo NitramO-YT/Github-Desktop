@@ -65,7 +65,7 @@ Each file comes with a `.sha256` checksum file.
 
 ### Installing from the package repository
 
-The packages are also published in an APT, RPM and Flatpak repository, <https://packages-github-desktop.nitramo.fr/>. Installed from it, GitHub Desktop is updated by `apt`, `dnf` or `flatpak` along with the rest of the system. The repository offers the same three channels as the links above: the commands below follow the stable channel, and replacing `stable` with `latest` or `beta` follows another one.
+The packages are also published in an APT, RPM and Flatpak repository, <https://packages-github-desktop.nitramo.fr/>. Installed from it, GitHub Desktop is updated by `apt`, `dnf`, `zypper` or `flatpak` along with the rest of the system. The repository offers the same three channels as the links above: the commands below follow the stable channel, and replacing `stable` with `latest` or `beta` follows another one.
 
 ```sh
 # Debian, Ubuntu and their derivatives
@@ -81,6 +81,12 @@ sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
 sudo curl -fsSL -o /etc/yum.repos.d/github-desktop.repo \
   https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
 sudo dnf install github-desktop
+
+# openSUSE Tumbleweed and Leap (-f: zypper refreshes the repository on its own)
+sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key
+sudo zypper addrepo -f \
+  https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
+sudo zypper install github-desktop
 
 # Flatpak, on any distribution, for your account only
 flatpak install --user \

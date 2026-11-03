@@ -524,6 +524,31 @@ sudo dnf install github-desktop</code></pre>
 
 sudo dnf install github-desktop</code></pre>
 
+    <h2>openSUSE Tumbleweed, Leap</h2>
+    <p>{{install.rpm.key}}</p>
+    <pre
+      translate="no"
+    ><code>sudo rpm --import https://packages-github-desktop.nitramo.fr/gpg.key</code></pre>
+    <p>{{install.suse.refresh}}</p>
+
+    <h3>{{install.stable}}</h3>
+    <pre translate="no"><code>sudo zypper addrepo -f \
+  https://packages-github-desktop.nitramo.fr/rpm/stable/github-desktop.repo
+
+sudo zypper install github-desktop</code></pre>
+
+    <h3>{{install.latest}}</h3>
+    <pre translate="no"><code>sudo zypper addrepo -f \
+  https://packages-github-desktop.nitramo.fr/rpm/latest/github-desktop.repo
+
+sudo zypper install github-desktop</code></pre>
+
+    <h3>{{install.beta}}</h3>
+    <pre translate="no"><code>sudo zypper addrepo -f \
+  https://packages-github-desktop.nitramo.fr/rpm/beta/github-desktop.repo
+
+sudo zypper install github-desktop</code></pre>
+
     <!-- flatpak -->
 
     <!-- downloads -->
