@@ -9,6 +9,14 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.6.10-linux1": [
+      "Follows 3.6.7-linux1: no Linux build was made from upstream 3.6.8 and 3.6.9, so this one also brings their changes, listed only in their own release notes: <https://github.com/desktop/desktop/releases/tag/release-3.6.8> and <https://github.com/desktop/desktop/releases/tag/release-3.6.9>. Among them: short-lived tokens for new sign-ins, Git 2.56.0, Electron 44.9.1, SSH host key prompts that work with newer OpenSSH, and no more crash when Copilot stops unexpectedly",
+      "The bundled git keeps its commands as links, as in earlier builds: upstream copies them in full instead, which doubles the size of the installed app",
+      "Also available as a Flatpak, from the package repository or as a .flatpak file: either way, flatpak update brings the versions that follow",
+      "The package repository serves the .deb, the .rpm and the Flatpak, and keeps them up to date through apt, dnf or flatpak: <https://packages-github-desktop.nitramo.fr/>",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.7-linux1": [
       "The bundled git keeps its commands as links, as in earlier builds: upstream 3.6.7 copies them in full instead, which doubles the size of the installed app",
       "Also available as a Flatpak, from the package repository or as a .flatpak file: either way, flatpak update brings the versions that follow",
