@@ -4,6 +4,8 @@ body:
   - type: markdown
     attributes:
       value: |
+        For security vulnerabilities or other security-related concerns or questions, follow our [security policy](https://github.com/NitramO-YT/Github-Desktop/security/policy) instead of opening a public issue.
+
         This tracker is for the **Linux build** of GitHub Desktop published from this fork, not for GitHub Desktop itself.
 
         If the problem also happens on Windows or macOS, or has nothing to do with packaging, desktop integration or Linux itself, the upstream tracker at [desktop/desktop](https://github.com/desktop/desktop/issues) is where it gets fixed. Reporting it here is still fine when you are unsure: a wrong guess costs nothing, and pointing you to the right place is quick.
