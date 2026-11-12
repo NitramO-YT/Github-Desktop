@@ -40,6 +40,10 @@ finish-args:
   # The keychain that holds the GitHub token.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
+  # "Show in your File Manager" asks the file manager already running to show
+  # the folder (app/src/main-process/linux-file-manager.ts), instead of
+  # starting it again.
+  - --talk-name=org.freedesktop.FileManager1
   # Moving a file to the trash goes through GIO and its daemon.
   - --talk-name=org.gtk.vfs.*
   - --talk-name=com.canonical.AppMenu.Registrar
