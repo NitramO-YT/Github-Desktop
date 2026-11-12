@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
   getShowFoldersArgs,
+  showDirectoryOnLinux,
   showFolderInFileManager,
 } from '../../../src/main-process/linux-file-manager'
 
@@ -88,5 +89,36 @@ describe('showFolderInFileManager', () => {
     let fellBack = false
     showFolderInFileManager('/home/user/repo', () => (fellBack = true), exec)
     assert.equal(fellBack, false)
+  })
+})
+
+describe('showDirectoryOnLinux', () => {
+  it('reveals the .git entry of a repository', async () => {
+    const { exec, calls } = fakeExec(null)
+    const revealed = new Array<string>()
+    await showDirectoryOnLinux(
+      '/home/user/repo',
+      path => revealed.push(path),
+      () => assert.fail('no fallback expected'),
+      async path => path === '/home/user/repo/.git',
+      exec
+    )
+    assert.deepEqual(revealed, ['/home/user/repo/.git'])
+    assert.equal(calls.length, 0)
+  })
+
+  it('shows any other directory through ShowFolders', async () => {
+    const { exec, calls } = fakeExec(null)
+    const revealed = new Array<string>()
+    await showDirectoryOnLinux(
+      '/home/user/.config/GitHub Desktop/logs',
+      path => revealed.push(path),
+      () => assert.fail('no fallback expected'),
+      async () => false,
+      exec
+    )
+    assert.deepEqual(revealed, [])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].file, 'gdbus')
   })
 })

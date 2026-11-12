@@ -1,5 +1,7 @@
 import { execFile } from 'child_process'
+import { join } from 'path'
 import { pathToFileURL } from 'url'
+import { pathExists } from '../lib/path-exists'
 
 // Long enough for D-Bus to start a file manager that is not running yet,
 // which it does on its own when one provides the interface.
@@ -76,4 +78,36 @@ export function showFolderInFileManager(
     )
     fallback()
   })
+}
+
+/**
+ * Shows a directory in the file manager on Linux, bringing its window to the
+ * front when the directory is a repository.
+ *
+ * Under Wayland a file manager may only come to the front with an activation
+ * token from the application the user just clicked in, and Electron provides
+ * one in a single case: revealing an item in its folder, which it does
+ * through the desktop portal when there is one. A repository is therefore
+ * shown by revealing its .git entry, a folder or, in a worktree or a
+ * submodule, a file. The file manager shows the repository with .git
+ * selected when hidden files are visible, and with nothing selected
+ * otherwise: Dolphin leaves hidden files as the user set them.
+ *
+ * Any other directory, such as the one holding the logs, goes through
+ * showFolderInFileManager.
+ */
+export async function showDirectoryOnLinux(
+  path: string,
+  revealItem: (path: string) => void,
+  fallback: () => void,
+  exists: (path: string) => Promise<boolean> = pathExists,
+  exec: ExecFile = execFile
+) {
+  const gitEntry = join(path, '.git')
+
+  if (await exists(gitEntry)) {
+    revealItem(gitEntry)
+  } else {
+    showFolderInFileManager(path, fallback, exec)
+  }
 }

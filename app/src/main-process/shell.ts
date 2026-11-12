@@ -1,5 +1,5 @@
 import { shell } from 'electron'
-import { showFolderInFileManager } from './linux-file-manager'
+import { showDirectoryOnLinux } from './linux-file-manager'
 
 /**
  * Wraps the inbuilt shell.openItem path to address a focus issue that affects macOS.
@@ -33,7 +33,7 @@ export function UNSAFE_openDirectory(path: string) {
     })
 
   if (__LINUX__) {
-    showFolderInFileManager(pathname, openPath)
+    showDirectoryOnLinux(pathname, shell.showItemInFolder, openPath)
   } else {
     openPath()
   }
