@@ -1,4 +1,5 @@
 import { shell } from 'electron'
+import { showFolderInFileManager } from './linux-file-manager'
 
 /**
  * Wraps the inbuilt shell.openItem path to address a focus issue that affects macOS.
@@ -24,9 +25,16 @@ export function UNSAFE_openDirectory(path: string) {
   // We can avoid this by adding a final backslash at the end of the path.
   const pathname = __WIN32__ && !path.endsWith('\\') ? `${path}\\` : path
 
-  shell.openPath(pathname).then(err => {
-    if (err !== '') {
-      log.error(`Failed to open directory (${path}): ${err}`)
-    }
-  })
+  const openPath = () =>
+    shell.openPath(pathname).then(err => {
+      if (err !== '') {
+        log.error(`Failed to open directory (${path}): ${err}`)
+      }
+    })
+
+  if (__LINUX__) {
+    showFolderInFileManager(pathname, openPath)
+  } else {
+    openPath()
+  }
 }

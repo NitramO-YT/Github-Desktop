@@ -9,6 +9,15 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.6.11-linux1": [
+      "Security update, recommended for every channel: the bundled Git moves to 2.56.1, which fixes six vulnerabilities. The most serious lets a malicious repository run code on the machine when it is cloned along with its submodules, which is how GitHub Desktop clones. GitHub Desktop uses its own Git, so updating the Git of the system does not cover it: <https://github.blog/open-source/git/git-security-vulnerabilities-announced-7/>",
+      "\"Show in your File Manager\" asks the file manager already running to show the folder, instead of starting it again: Dolphin opens it in a new tab when set to, rather than in a new window holding the tabs of its last session",
+      "The bundled git keeps its commands as links, as in earlier builds: upstream copies them in full instead, which doubles the size of the installed app",
+      "Also available as a Flatpak, from the package repository or as a .flatpak file: either way, flatpak update brings the versions that follow",
+      "The package repository serves the .deb, the .rpm and the Flatpak, and keeps them up to date through apt, dnf, zypper or flatpak: <https://packages-github-desktop.nitramo.fr/>",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.11-beta1-linux1": [
       "Preview build, made from the upstream 3.6.11 beta 1: it carries what the next release will bring, and the bugs a beta comes with",
       "Several accounts at once, new in this beta, change how credentials are stored and handed to git: on Linux they go through the Secret Service (KWallet or GNOME Keyring), so problems signing in, switching accounts or pushing over HTTPS are the most useful to report",
