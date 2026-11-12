@@ -155,12 +155,25 @@ type ParsedEntry = {
   note: ReleaseNoteEntry
 }
 
+/**
+ * Reads an upstream changelog entry: its category, its text, then usually the
+ * pull requests it comes from ("- #23075") and a contributor to thank. Some
+ * entries name no pull request at all ("[Improved] Update Git to 2.56.1", the
+ * only entry of 3.6.11), and some have a dash of their own with no number
+ * after it ("- CVE-2025-23040, …"): both keep their whole text, since a dash
+ * only ends the text when pull request numbers follow it.
+ */
 function parseEntry(entry: string): ParsedEntry | null {
-  const releaseEntryExternalContributor = /\[(.*)\](.*)- (.*)\. Thanks (.*)!/
-  const releaseEntryRegex = /\[(.*)\](.*)- (.*)/
+  const releaseEntryExternalContributor =
+    /\[(.*)\](.*)- (.*#\d.*)\. Thanks (.*)!/
+  const releaseEntryRegex = /\[(.*)\](.*)- (.*#\d.*)/
+  const releaseEntryWithoutReference = /\[(.*)\](.*)()/
 
   const externalMatch = releaseEntryExternalContributor.exec(entry)
-  const match = externalMatch ?? releaseEntryRegex.exec(entry)
+  const match =
+    externalMatch ??
+    releaseEntryRegex.exec(entry) ??
+    releaseEntryWithoutReference.exec(entry)
 
   if (!match) {
     console.warn(`release entry does not match any format: '${entry}'`)
@@ -182,6 +195,19 @@ function parseEntry(entry: string): ParsedEntry | null {
   }
 
   return { category, note }
+}
+
+/** One line of a release notes section, linking the pull requests if any. */
+export function formatReleaseNote(note: ReleaseNoteEntry): string {
+  const idsAsUrls = note.ids
+    .map(id => `https://github.com/desktop/desktop/issues/${id}`)
+    .join(' ')
+  const references = idsAsUrls === '' ? '' : ` - ${idsAsUrls}`
+  const contributorNote = note.contributor
+    ? `. Thanks ${note.contributor}!`
+    : ''
+
+  return `- ${note.text}${references}${contributorNote}`
 }
 
 /**

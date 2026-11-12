@@ -2,6 +2,7 @@ import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
   findPreviousLinuxBuild,
+  formatReleaseNote,
   groupUpstreamEntries,
   selectUpstreamVersions,
 } from './release-notes-changelog'
@@ -207,5 +208,48 @@ describe('groupUpstreamEntries', () => {
   it('treats a repeated pull request number as one', () => {
     const groups = groupUpstreamEntries(['3.6.7'], releases, '3.6.7-beta3')
     assert.deepEqual(groups.fixed, [])
+  })
+
+  it('keeps an entry that names no pull request', () => {
+    const groups = groupUpstreamEntries(
+      ['3.6.11'],
+      { '3.6.11': ['[Improved] Update Git to 2.56.1'] },
+      null
+    )
+    assert.deepEqual(groups.improved, [
+      { text: 'Update Git to 2.56.1', ids: [] },
+    ])
+  })
+
+  it('keeps the whole text when a dash is followed by no number', () => {
+    const entry =
+      "[Fixed] Mitigates vulnerabilities in Git's credential helper - CVE-2025-23040, CVE-2024-50349"
+    const groups = groupUpstreamEntries(['3.5.1'], { '3.5.1': [entry] }, null)
+    assert.deepEqual(groups.fixed, [
+      {
+        text: "Mitigates vulnerabilities in Git's credential helper - CVE-2025-23040, CVE-2024-50349",
+        ids: [],
+      },
+    ])
+  })
+})
+
+describe('formatReleaseNote', () => {
+  it('links the pull requests and thanks the contributor', () => {
+    assert.equal(
+      formatReleaseNote({
+        text: 'Highlight Svelte files',
+        ids: [22969],
+        contributor: '@Klaynight-dev',
+      }),
+      '- Highlight Svelte files - https://github.com/desktop/desktop/issues/22969. Thanks @Klaynight-dev!'
+    )
+  })
+
+  it('leaves no trailing dash when no pull request is named', () => {
+    assert.equal(
+      formatReleaseNote({ text: 'Update Git to 2.56.1', ids: [] }),
+      '- Update Git to 2.56.1'
+    )
   })
 })

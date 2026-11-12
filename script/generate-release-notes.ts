@@ -10,6 +10,7 @@ type ReleaseNotesGroups = import('./release-notes-changelog').ReleaseNotesGroups
 
 const {
   findPreviousLinuxBuild,
+  formatReleaseNote,
   getUpstreamVersion,
   groupUpstreamEntries,
   isInitialTag,
@@ -187,19 +188,6 @@ function readUpstreamChanges(
     versions,
     previousBuild,
   }
-}
-
-function formatReleaseNote(note: ReleaseNoteEntry): string {
-  const idsAsUrls = note.ids
-    .map(id => `https://github.com/desktop/desktop/issues/${id}`)
-    .join(' ')
-  const contributorNote = note.contributor
-    ? `. Thanks ${note.contributor}!`
-    : ''
-
-  const template = ` - ${note.text} - ${idsAsUrls}${contributorNote}`
-
-  return template.trim()
 }
 
 // An upstream release only fills the categories it has something to say about:
