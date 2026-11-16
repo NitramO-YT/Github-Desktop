@@ -1,3 +1,7 @@
+import { storePushAfterCommit } from './helpers/commit-push-storage'
+import { verifyRepositoryGitSpawnFence } from '../git/repository-operation'
+import { AssistedCommitCoordinator } from '../assisted-commit/coordinator'
+import { getStatus } from '../git/status'
 import * as Path from 'path'
 import { writeFile } from 'fs/promises'
 import {
@@ -66,7 +70,6 @@ import {
 import {
   DiffSelection,
   DiffSelectionType,
-  DiffType,
   ImageDiffType,
   ITextDiff,
 } from '../../models/diff'
@@ -109,6 +112,23 @@ import {
   DefaultCommitMessage,
   ICommitMessage,
 } from '../../models/commit-message'
+import { CommitMode } from '../../models/commit-mode'
+import {
+  AssistedCommitRunOutcome,
+  isAssistedCommitRepositoryLocked,
+} from '../../models/assisted-commit-run'
+import { ICopilotAssistedCommitRequest } from '../../models/copilot-assisted-commit'
+import {
+  assertRepositoryGitAvailable,
+  isRepositoryGitPaused,
+  withoutRepositoryGitAccess,
+  withRepositoryGitOperation,
+  getAssistedCommitProtectedPaths,
+  withRepositoryGitResourceMutation,
+  canonicalMutationPath,
+  isRepositoryAffectedByAssistedCommit,
+} from '../git/repository-operation'
+import { storeCommitMode } from './helpers/commit-mode-storage'
 import {
   Progress,
   ICheckoutProgress,
@@ -170,7 +190,6 @@ import {
   SelectionType,
   IRepositoryState,
   ChangesSelectionKind,
-  ChangesWorkingDirectorySelection,
   isRebaseConflictState,
   isCherryPickConflictState,
   IFileListFilterState,
@@ -205,7 +224,6 @@ import {
   getCommitDiff,
   getMergeBase,
   getRemotes,
-  getWorkingDirectoryDiff,
   isCoAuthoredByTrailer,
   pull as pullRepo,
   push as pushRepo,
@@ -236,6 +254,10 @@ import {
   getRepositoryType,
   RepositoryType,
   listWorktrees,
+  addWorktree,
+  IAddWorktreeOptions,
+  setConfigValue,
+  removeConfigValue,
   resolveMainWorktreePath,
   removeWorktree,
   moveWorktree,
@@ -248,8 +270,6 @@ import {
   getRemoteURL,
   getGlobalConfigPath,
   getFilesDiffText,
-  TerminalOutput,
-  HookProgress,
   git,
 } from '../git'
 import {
@@ -314,7 +334,6 @@ import {
 } from '../copilot-app'
 import { ApiRepositoriesStore } from './api-repositories-store'
 import {
-  updateChangedFiles,
   updateConflictState,
   selectWorkingDirectoryFiles,
 } from './updates/changes-state'
@@ -342,7 +361,6 @@ import {
   defaultUncommittedChangesStrategy,
 } from '../../models/uncommitted-changes-strategy'
 import { IStashEntry, StashedChangesLoadStates } from '../../models/stash-entry'
-import { arrayEquals } from '../equality'
 import { MenuLabelsEvent } from '../../models/menu-labels'
 import { findRemoteBranchName } from './helpers/find-branch-name'
 import { updateRemoteUrl } from './updates/update-remote-url'
@@ -610,6 +628,7 @@ export const showChangesFilterDefault = true
 
 export class AppStore extends TypedBaseStore<IAppState> {
   private readonly gitStoreCache: GitStoreCache
+  private readonly assistedCommits: AssistedCommitCoordinator
 
   private accounts: ReadonlyArray<Account> = new Array<Account>()
   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
@@ -825,6 +844,51 @@ export class AppStore extends TypedBaseStore<IAppState> {
     private readonly copilotStore: CopilotStore
   ) {
     super()
+    this.assistedCommits = new AssistedCommitCoordinator(
+      this.repositoryStateCache,
+      this.accountsStore,
+      this.copilotStore,
+      this.popupManager,
+      {
+        getCurrent: repository => this.gitStoreCache.get(repository).repository,
+        refresh: (repository, clearPartialState) =>
+          this.refreshAssistedCommitRepositoryCore(
+            repository,
+            clearPartialState
+          ),
+        refreshAll: repository => this._refreshRepository(repository),
+        loadHistory: repository =>
+          this._loadChangedFilesForCurrentSelection(repository),
+        recordCommit: (
+          repository,
+          initialState,
+          context,
+          files,
+          partialSelection
+        ) =>
+          this._recordCommitStats(
+            this.gitStoreCache.get(repository),
+            repository,
+            initialState,
+            context,
+            files,
+            false,
+            partialSelection
+          ),
+      },
+      () => ({
+        accounts: this.accounts,
+        providers: this.byokProviders,
+        models: this.selectedCopilotModelsByAccount,
+        selectedRepository: this.selectedRepository,
+        hideWhitespace: this.hideWhitespaceInChangesDiff,
+      }),
+      selection => this.resolveCopilotModelRequest(selection),
+      {
+        changed: () => this.emitUpdate(),
+        error: error => this.emitError(error),
+      }
+    )
 
     this.showWelcomeFlow = !hasShownWelcomeFlow()
 
@@ -1073,6 +1137,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.statsStore.setUsesShortLivedToken(
         accounts.some(account => this.accountsStore.isRefreshable(account))
       )
+      this.assistedCommits.context.abortUnauthorized()
       this.syncCopilotModelsFromCache()
       this.syncCopilotQuotaSnapshotsFromCache()
       this.updateCopilotModelsForCurrentAccount()
@@ -1231,6 +1296,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   protected emitUpdate() {
+    withoutRepositoryGitAccess(() => this.queueUpdate())
+  }
+
+  private queueUpdate() {
     // If the window is hidden then we won't get an animation frame, but there
     // may still be work we wanna do in response to the state change. So
     // immediately emit the update.
@@ -1248,6 +1317,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
     window.requestAnimationFrame(() => {
       this.emitUpdateNow()
     })
+  }
+
+  protected emitError(error: Error) {
+    withoutRepositoryGitAccess(() => super.emitError(error))
   }
 
   private emitUpdateNow() {
@@ -1772,7 +1845,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     return Array.from(shasInDiff)
   }
 
-  private updateOrSelectFirstCommit(
+  private async updateOrSelectFirstCommit(
     repository: Repository,
     commitSHAs: ReadonlyArray<string>
   ) {
@@ -1794,12 +1867,22 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     if (selectedSHA === null && commitSHAs.length > 0) {
       this._changeCommitSelection(repository, [commitSHAs[0]], true)
-      this._loadChangedFilesForCurrentSelection(repository)
+      await this.assistedCommits.readers.loadHistory(repository)
     }
+    await this.assistedCommits.readers.resumeHistory(repository)
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _initializeCompare(
+    repository: Repository,
+    initialAction?: CompareAction
+  ) {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.initializeCompareReadCore(repository, initialAction)
+    )
+  }
+
+  private async initializeCompareReadCore(
     repository: Repository,
     initialAction?: CompareAction
   ) {
@@ -1836,11 +1919,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
     const cachedState = compareState.formState
     const action =
       initialAction != null ? initialAction : getInitialAction(cachedState)
-    this._executeCompare(repository, action)
+    await this._executeCompare(repository, action)
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _executeCompare(
+    repository: Repository,
+    action: CompareAction
+  ): Promise<void> {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.executeCompareReadCore(repository, action)
+    )
+  }
+
+  private async executeCompareReadCore(
     repository: Repository,
     action: CompareAction
   ): Promise<void> {
@@ -1895,7 +1987,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         filterText: '',
         showBranchList: false,
       }))
-      this.updateOrSelectFirstCommit(repository, commits)
+      await this.updateOrSelectFirstCommit(repository, commits)
 
       return this.emitUpdate()
     }
@@ -1963,7 +2055,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.emitUpdate()
 
-    this.updateOrSelectFirstCommit(repository, commitSHAs)
+    await this.updateOrSelectFirstCommit(repository, commitSHAs)
 
     if (this.currentMergeTreePromise != null) {
       return this.currentMergeTreePromise
@@ -2027,6 +2119,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _loadNextCommitBatch(repository: Repository): Promise<void> {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.loadNextCommitBatchReadCore(repository)
+    )
+  }
+
+  private async loadNextCommitBatchReadCore(
+    repository: Repository
+  ): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
 
     const state = this.repositoryStateCache.get(repository)
@@ -2064,6 +2164,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _loadChangedFilesForCurrentSelection(
+    repository: Repository
+  ): Promise<void> {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.loadChangedFilesForCurrentSelectionReadCore(repository)
+    )
+  }
+
+  private async loadChangedFilesForCurrentSelectionReadCore(
     repository: Repository
   ): Promise<void> {
     const state = this.repositoryStateCache.get(repository)
@@ -2106,6 +2214,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         ? changesetData.files[0]
         : commitSelection.file
 
+    verifyRepositoryGitSpawnFence()
     this.repositoryStateCache.updateCommitSelection(repository, () => ({
       file: firstFileOrDefault,
       changesetData,
@@ -2115,7 +2224,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.emitUpdate()
 
     if (firstFileOrDefault !== null) {
-      this._changeFileSelection(repository, firstFileOrDefault)
+      await this._changeFileSelection(repository, firstFileOrDefault)
     }
   }
 
@@ -2130,6 +2239,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     file: CommittedFileChange
   ): Promise<void> {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.changeFileSelectionReadCore(repository, file)
+    )
+  }
+
+  private async changeFileSelectionReadCore(
+    repository: Repository,
+    file: CommittedFileChange
+  ): Promise<void> {
+    verifyRepositoryGitSpawnFence()
     this.repositoryStateCache.updateCommitSelection(repository, () => ({
       file,
       diff: null,
@@ -2185,6 +2304,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
+    verifyRepositoryGitSpawnFence()
     this.repositoryStateCache.updateCommitSelection(repository, () => ({
       diff,
     }))
@@ -2472,6 +2592,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     lastPush: Date | null
   ): Promise<boolean> {
+    if (
+      isRepositoryGitPaused(repository.path) ||
+      isRepositoryAffectedByAssistedCommit(repository.path)
+    ) {
+      return false
+    }
     const gitStore = this.gitStoreCache.get(repository)
     const lastFetched = await gitStore.updateLastFetched()
 
@@ -2746,6 +2872,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.commitMessageGenerationDisclaimerLastSeen =
       getNumber(commitMessageGenerationDisclaimerLastSeenKey) ?? null
+    this.assistedCommits.dialogs.loadConsent()
 
     this.commitMessageGenerationButtonClicked = getBoolean(
       commitMessageGenerationButtonClickedKey,
@@ -3094,21 +3221,31 @@ export class AppStore extends TypedBaseStore<IAppState> {
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _loadStatus(
     repository: Repository,
-    clearPartialState: boolean = false
+    clearPartialState: boolean = false,
+    propagateErrors: boolean = false
   ): Promise<IStatusResult | null> {
-    const gitStore = this.gitStoreCache.get(repository)
-    const status = await gitStore.loadStatus()
-    this.updateSidebarIndicator(repository, status)
-
-    if (status === null) {
-      this.emitUpdate()
-      return null
-    }
-
-    this.repositoryStateCache.updateChangesState(repository, state =>
-      updateChangedFiles(state, status, clearPartialState)
+    return this.assistedCommits.readers.loadStatus(
+      repository,
+      clearPartialState,
+      propagateErrors,
+      async () => {
+        const status = await this.gitStoreCache
+          .get(repository)
+          .loadStatus({ propagateErrors })
+        this.updateSidebarIndicator(repository, status)
+        if (status === null) {
+          this.emitUpdate()
+        }
+        return status
+      },
+      status => this.publishRepositoryStatus(repository, status)
     )
+  }
 
+  private async publishRepositoryStatus(
+    repository: Repository,
+    status: IStatusResult
+  ): Promise<void> {
     this.repositoryStateCache.updateChangesState(repository, state => ({
       conflictState: updateConflictState(state, status, this.statsStore),
     }))
@@ -3124,10 +3261,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     this.emitUpdate()
-
-    this.updateChangesWorkingDirectoryDiff(repository)
-
-    return status
   }
 
   /**
@@ -3474,6 +3607,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
     selectedSection: RepositorySectionTab,
     forceButtonFocus: boolean = false
   ): Promise<void> {
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.changeRepositorySectionReadCore(
+        repository,
+        selectedSection,
+        forceButtonFocus
+      )
+    )
+  }
+
+  private async changeRepositorySectionReadCore(
+    repository: Repository,
+    selectedSection: RepositorySectionTab,
+    forceButtonFocus: boolean = false
+  ): Promise<void> {
     this.repositoryStateCache.update(repository, state => {
       if (state.selectedSection !== selectedSection) {
         this.statsStore.increment('repositoryViewChangeCount')
@@ -3528,115 +3675,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * in the working directory. This operation is a noop if there's no currently
    * selected file.
    */
-  private async updateChangesWorkingDirectoryDiff(
+  private updateChangesWorkingDirectoryDiff(
     repository: Repository
   ): Promise<void> {
-    const stateBeforeLoad = this.repositoryStateCache.get(repository)
-    const changesStateBeforeLoad = stateBeforeLoad.changesState
-
-    if (
-      changesStateBeforeLoad.selection.kind !==
-      ChangesSelectionKind.WorkingDirectory
-    ) {
-      return
-    }
-
-    const selectionBeforeLoad = changesStateBeforeLoad.selection
-    const selectedFileIDsBeforeLoad = selectionBeforeLoad.selectedFileIDs
-
-    // We only render diffs when a single file is selected.
-    if (selectedFileIDsBeforeLoad.length !== 1) {
-      if (selectionBeforeLoad.diff !== null) {
-        this.repositoryStateCache.updateChangesState(repository, () => ({
-          selection: {
-            ...selectionBeforeLoad,
-            diff: null,
-          },
-        }))
-        this.emitUpdate()
-      }
-      return
-    }
-
-    const selectedFileIdBeforeLoad = selectedFileIDsBeforeLoad[0]
-    const selectedFileBeforeLoad =
-      changesStateBeforeLoad.workingDirectory.findFileWithID(
-        selectedFileIdBeforeLoad
-      )
-
-    if (selectedFileBeforeLoad === null) {
-      return
-    }
-
-    const diff = await getWorkingDirectoryDiff(
-      repository,
-      selectedFileBeforeLoad,
-      this.hideWhitespaceInChangesDiff
-    )
-
-    const stateAfterLoad = this.repositoryStateCache.get(repository)
-    const changesState = stateAfterLoad.changesState
-
-    // A different file (or files) could have been selected while we were
-    // loading the diff in which case we no longer care about the diff we
-    // just loaded.
-    if (
-      changesState.selection.kind !== ChangesSelectionKind.WorkingDirectory ||
-      !arrayEquals(
-        changesState.selection.selectedFileIDs,
-        selectedFileIDsBeforeLoad
-      )
-    ) {
-      return
-    }
-
-    const selectedFileID = changesState.selection.selectedFileIDs[0]
-
-    if (selectedFileID !== selectedFileIdBeforeLoad) {
-      return
-    }
-
-    const currentlySelectedFile =
-      changesState.workingDirectory.findFileWithID(selectedFileID)
-    if (currentlySelectedFile === null) {
-      return
-    }
-
-    const selectableLines = new Set<number>()
-    if (diff.kind === DiffType.Text || diff.kind === DiffType.LargeText) {
-      // The diff might have changed dramatically since last we loaded it.
-      // Ideally we would be more clever about validating that any partial
-      // selection state is still valid by ensuring that selected lines still
-      // exist but for now we'll settle on just updating the selectable lines
-      // such that any previously selected line which now no longer exists or
-      // has been turned into a context line isn't still selected.
-      diff.hunks.forEach(h => {
-        h.lines.forEach((line, index) => {
-          if (line.isIncludeableLine()) {
-            selectableLines.add(h.unifiedDiffStart + index)
-          }
-        })
-      })
-    }
-
-    const newSelection =
-      currentlySelectedFile.selection.withSelectableLines(selectableLines)
-    const selectedFile = currentlySelectedFile.withSelection(newSelection)
-    const updatedFiles = changesState.workingDirectory.files.map(f =>
-      f.id === selectedFile.id ? selectedFile : f
-    )
-    const workingDirectory = WorkingDirectoryStatus.fromFiles(updatedFiles)
-
-    const selection: ChangesWorkingDirectorySelection = {
-      ...changesState.selection,
-      diff,
-    }
-
-    this.repositoryStateCache.updateChangesState(repository, () => ({
-      selection,
-      workingDirectory,
-    }))
-    this.emitUpdate()
+    return this.assistedCommits.readers.updateDiff(repository)
   }
 
   public _hideStashedChanges(repository: Repository) {
@@ -3804,11 +3846,91 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.emitUpdate()
   }
 
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _prepareCopilotAssistedCommitRequest(
+    repository: Repository,
+    request: ICopilotAssistedCommitRequest
+  ): Promise<ICopilotAssistedCommitRequest> {
+    return this.assistedCommits.prepare(repository, request)
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public async _createCopilotAssistedCommits(
+    repository: Repository,
+    request: ICopilotAssistedCommitRequest
+  ): Promise<AssistedCommitRunOutcome> {
+    const pushAfterCommit =
+      this.repositoryStateCache.get(repository).changesState.pushAfterCommit
+    const outcome = await this.assistedCommits.create(repository, request)
+    if (
+      outcome.kind === 'local-ready' &&
+      pushAfterCommit &&
+      this.repositoryStateCache.get(repository).changesState.assistedCommit
+        .kind === 'idle'
+    ) {
+      await this.pushAfterCommit(repository, outcome.result.head.ref)
+    }
+    return outcome
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _cancelCopilotAssistedCommits(
+    repository: Repository,
+    runId: string
+  ): void {
+    this.assistedCommits.state.cancel(repository, runId)
+  }
+
+  private async refreshAssistedCommitRepositoryCore(
+    repository: Repository,
+    clearPartialState: boolean
+  ): Promise<void> {
+    const status = await this._loadStatus(repository, clearPartialState, true)
+    if (status === null) {
+      throw new Error('Could not refresh the repository after assisted commits')
+    }
+    if (clearPartialState) {
+      this.repositoryStateCache.updateChangesState(repository, changes => ({
+        workingDirectory: changes.workingDirectory.withIncludeAllFiles(false),
+      }))
+    }
+    await this.refreshChangesSection(repository, {
+      includingStatus: false,
+      clearPartialState: false,
+    })
+    await this._refreshRepository(repository)
+    if (clearPartialState) {
+      this.repositoryStateCache.updateChangesState(repository, changes => ({
+        workingDirectory: changes.workingDirectory.withIncludeAllFiles(false),
+      }))
+    }
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _retryCopilotAssistedCommitRecovery(
+    repository: Repository,
+    runId: string
+  ): Promise<void> {
+    return this.assistedCommits.recovery.retry(repository, runId)
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _dismissCopilotAssistedCommitError(
+    repository: Repository,
+    runId: string
+  ): void {
+    this.assistedCommits.recovery.dismiss(repository, runId)
+  }
+
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _commitIncludedChanges(
     repository: Repository,
     context: ICommitContext
   ): Promise<boolean> {
+    this.assistedCommits.state.assertAvailable(repository)
+    await this.assistedCommits.readers.read(repository, undefined, () =>
+      this.assistedCommits.selections.verifyRestored(repository)
+    )
     const state = this.repositoryStateCache.get(repository)
     const files = state.changesState.workingDirectory.files
     const selectedFiles = files.filter(file => {
@@ -3817,73 +3939,122 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     const gitStore = this.gitStoreCache.get(repository)
 
-    return this.withIsCommitting(repository, async () => {
-      const result = await gitStore.performFailableOperation(
-        async () => {
-          const message = await formatCommitMessage(repository, context)
-          let aborted = false
-          return createCommit(repository, message, selectedFiles, {
-            amend: context.amend,
-            onHookProgress: this.onHookProgress(repository),
-            onHookFailure: this.onHookFailure(() => (aborted = true)),
-            onTerminalOutputAvailable: subscribeToCommitOutput => {
-              this.repositoryStateCache.update(repository, state => ({
-                ...state,
-                subscribeToCommitOutput,
-              }))
-            },
-            noVerify: state.skipCommitHooks,
-            signOff: state.signOffCommits,
-            allowEmpty: state.allowEmptyCommit,
-          }).catch(err => (aborted ? undefined : Promise.reject(err)))
-        },
-        { gitContext: { kind: 'commit' }, repository }
-      )
-
-      if (result !== undefined) {
-        await this._recordCommitStats(
-          gitStore,
-          repository,
-          state,
-          context,
-          selectedFiles,
-          context.amend === true
-        )
-
-        this.repositoryStateCache.update(repository, () => {
-          return {
-            commitToAmend: null,
-            allowEmptyCommit: false,
+    let branchToPush: string | null | undefined
+    const committed = await this.withIsCommitting(
+      repository,
+      selectedFiles,
+      async () => {
+        if (
+          state.changesState.pushAfterCommit &&
+          context.amend !== true &&
+          state.commitToAmend === null &&
+          state.changesState.conflictState === null &&
+          state.multiCommitOperationState === null &&
+          !repository.isTutorialRepository
+        ) {
+          const status = await getStatus(repository, false, true)
+          if (
+            !status.mergeHeadFound &&
+            !status.squashMsgFound &&
+            status.rebaseInternalState === null &&
+            !status.isCherryPickingHeadFound
+          ) {
+            branchToPush =
+              status.currentBranch === undefined
+                ? null
+                : `refs/heads/${status.currentBranch}`
           }
-        })
-
-        // Clear the commit message in the git store so that if the user
-        // switched away from the Changes tab while the commit was in progress,
-        // the persisted message (saved on unmount) doesn't reappear when they
-        // return to the Changes tab.
-        await gitStore.setCommitMessage(DefaultCommitMessage)
-
-        await this.refreshChangesSection(repository, {
-          includingStatus: true,
-          clearPartialState: true,
-        })
-
-        // Do not await for refreshing the repository, otherwise this will block
-        // the commit button unnecessarily for a long time in big repos.
-        this._refreshRepositoryAfterCommit(
-          repository,
-          result,
-          state.commitToAmend
+        }
+        const result = await gitStore.performFailableOperation(
+          async () => {
+            const certifiedPartialDiffs =
+              await this.assistedCommits.selections.verifyManual(
+                repository,
+                selectedFiles
+              )
+            const message = await formatCommitMessage(repository, context)
+            let aborted = false
+            return createCommit(repository, message, selectedFiles, {
+              certifiedPartialDiffs,
+              amend: context.amend,
+              onHookProgress: this.onHookProgress(repository),
+              onHookFailure: this.onHookFailure(() => (aborted = true)),
+              onTerminalOutputAvailable: subscribeToCommitOutput => {
+                this.repositoryStateCache.update(repository, state => ({
+                  ...state,
+                  subscribeToCommitOutput,
+                }))
+              },
+              noVerify: state.skipCommitHooks,
+              signOff: state.signOffCommits,
+              allowEmpty: state.allowEmptyCommit,
+            }).catch(err => (aborted ? undefined : Promise.reject(err)))
+          },
+          { gitContext: { kind: 'commit' }, repository }
         )
-      } else {
-        // The commit failed, but we should still refresh to ensure we
-        // accurately reflect the repository state post failure. See
-        // https://github.com/desktop/desktop/issues/21229
-        this._refreshRepository(repository)
-      }
 
-      return result !== undefined
-    })
+        if (result !== undefined) {
+          this.assistedCommits.selections.retire(repository, selectedFiles)
+        }
+        this.assistedCommits.readers.finishManual(repository)
+        if (result !== undefined) {
+          try {
+            await this._recordCommitStats(
+              gitStore,
+              repository,
+              state,
+              context,
+              selectedFiles,
+              context.amend === true
+            )
+          } catch (error) {
+            log.error(
+              'Commit succeeded, but usage statistics could not be recorded',
+              error
+            )
+          }
+
+          this.repositoryStateCache.update(repository, () => {
+            return {
+              commitToAmend: null,
+              allowEmptyCommit: false,
+            }
+          })
+
+          // Clear the commit message in the git store so that if the user
+          // switched away from the Changes tab while the commit was in progress,
+          // the persisted message (saved on unmount) doesn't reappear when they
+          // return to the Changes tab.
+          await gitStore.setCommitMessage(DefaultCommitMessage)
+
+          await this.refreshChangesSection(repository, {
+            includingStatus: true,
+            clearPartialState: true,
+          })
+
+          // Do not await for refreshing the repository, otherwise this will block
+          // the commit button unnecessarily for a long time in big repos.
+          this._refreshRepositoryAfterCommit(
+            repository,
+            result,
+            state.commitToAmend
+          )
+        } else {
+          // The commit failed, but we should still refresh to ensure we
+          // accurately reflect the repository state post failure. See
+          // https://github.com/desktop/desktop/issues/21229
+          this._refreshRepository(repository)
+        }
+
+        return result !== undefined
+      }
+    )
+    if (committed && branchToPush !== undefined) {
+      this.pushAfterCommit(repository, branchToPush).catch(error =>
+        this.emitError(new ErrorWithMetadata(error, { repository }))
+      )
+    }
+    return committed
   }
 
   private async _refreshRepositoryAfterCommit(
@@ -3910,13 +4081,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repositoryState: IRepositoryState,
     context: ICommitContext,
     selectedFiles: readonly WorkingDirectoryFileChange[],
-    isAmend: boolean
+    isAmend: boolean,
+    partialSelection?: boolean
   ) {
-    this.statsStore.recordCommit()
+    await this.statsStore.recordCommit()
 
-    const includedPartialSelections = selectedFiles.some(
-      file => file.selection.getSelectionType() === DiffSelectionType.Partial
-    )
+    const includedPartialSelections =
+      partialSelection ??
+      selectedFiles.some(
+        file => file.selection.getSelectionType() === DiffSelectionType.Partial
+      )
     if (includedPartialSelections) {
       this.statsStore.increment('partialCommits')
     }
@@ -3993,6 +4167,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       | ReadonlyArray<WorkingDirectoryFileChange>,
     include: boolean
   ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
     const files = Array.isArray(file) ? file : [file]
     const modifiedIds = new Set<string>(files.map(f => f.id))
 
@@ -4016,6 +4191,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
     file: WorkingDirectoryFileChange,
     diffSelection: DiffSelection
   ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
+    this.assistedCommits.selections.recordLineSelection(
+      repository,
+      file,
+      diffSelection
+    )
     this.updateWorkingDirectoryFileSelection(repository, file, diffSelection)
     return Promise.resolve()
   }
@@ -4047,6 +4228,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     includeAll: boolean
   ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
     this.repositoryStateCache.updateChangesState(repository, state => {
       const workingDirectory =
         state.workingDirectory.withIncludeAllFiles(includeAll)
@@ -4176,6 +4358,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _refreshRepository(repository: Repository): Promise<void> {
+    return this.assistedCommits.readers.refresh(repository, () =>
+      this.refreshRepositoryCore(repository)
+    )
+  }
+
+  private async refreshRepositoryCore(repository: Repository): Promise<void> {
     if (repository.missing) {
       return
     }
@@ -4265,11 +4453,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.updateCurrentPullRequest(repository)
 
     const latestState = this.repositoryStateCache.get(repository)
-    this.updateMenuItemLabels(latestState)
+    if (this.selectedRepository?.id === repository.id) {
+      this.updateMenuItemLabels(latestState)
+    }
 
-    this._initializeCompare(repository)
+    await this._initializeCompare(repository)
 
-    this.updateCurrentTutorialStep(repository)
+    await this.updateCurrentTutorialStep(repository)
   }
 
   private async updateStashEntryCountMetric(
@@ -4320,6 +4510,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * Refresh indicator in repository list for a specific repository
    */
   private refreshIndicatorForRepository = async (repository: Repository) => {
+    if (isRepositoryGitPaused(repository.path)) {
+      this.assistedCommits.readers.deferRefresh(repository)
+      return
+    }
+    return withRepositoryGitOperation(repository.path, 'read', () =>
+      this.refreshIndicatorForRepositoryCore(repository)
+    )
+  }
+
+  private async refreshIndicatorForRepositoryCore(
+    repository: Repository
+  ): Promise<void> {
     const lookup = this.localRepositoryStateLookup
 
     if (repository.missing) {
@@ -4537,10 +4739,31 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
   }
 
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _setCommitMode(repository: Repository, commitMode: CommitMode): void {
+    this.assistedCommits.state.assertAvailable(repository)
+    storeCommitMode(repository, commitMode)
+    this.repositoryStateCache.updateChangesState(repository, () => ({
+      commitMode,
+    }))
+    this.emitUpdate()
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _setPushAfterCommit(repository: Repository, enabled: boolean): void {
+    this.assistedCommits.state.assertAvailable(repository)
+    storePushAfterCommit(repository, enabled)
+    this.repositoryStateCache.updateChangesState(repository, () => ({
+      pushAfterCommit: enabled,
+    }))
+    this.emitUpdate()
+  }
+
   public _updateCommitOptions(
     repository: Repository,
     commitOptions: Partial<CommitOptions>
   ): void {
+    this.assistedCommits.state.assertAvailable(repository)
     this.repositoryStateCache.update(repository, state => ({
       skipCommitHooks: state.skipCommitHooks,
       signOffCommits: state.signOffCommits,
@@ -4600,6 +4823,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (currentPopup === null) {
       return
     }
+    if (popupType === undefined || currentPopup.type === popupType) {
+      this.assistedCommits.dialogs.settleDismissed(currentPopup.id)
+    }
 
     if (popupType === undefined) {
       this.popupManager.removePopup(currentPopup)
@@ -4612,11 +4838,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this._completeOpenInDesktop(() => Promise.resolve(null))
       }
 
-      this.popupManager.removePopupByType(popupType)
+      if (
+        popupType === PopupType.HookFailed ||
+        popupType === PopupType.AssistedCommitDisclaimer
+      ) {
+        this.popupManager.removePopup(currentPopup)
+      } else {
+        this.popupManager.removePopupByType(popupType)
+      }
     }
 
     this.notifyRemovedPopups()
     this.emitUpdate()
+    this.assistedCommits.dialogs.presentNextFailure()
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
@@ -4624,9 +4858,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (this.popupManager.currentPopup === null) {
       return
     }
+    this.assistedCommits.dialogs.settleDismissed(popupId)
 
     this.popupManager.removePopupById(popupId)
     this.notifyRemovedPopups()
+    this.assistedCommits.dialogs.presentNextFailure()
     this.emitUpdate()
   }
 
@@ -4701,6 +4937,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
     noTrackOption: boolean = false,
     checkoutBranch: boolean = true
   ): Promise<Branch | undefined> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.createBranchCore(
+          repository,
+          name,
+          startPoint,
+          noTrackOption,
+          checkoutBranch
+        )
+      )
+    })
+  }
+
+  private async createBranchCore(
+    repository: Repository,
+    name: string,
+    startPoint: string | null,
+    noTrackOption: boolean = false,
+    checkoutBranch: boolean = true
+  ): Promise<Branch | undefined> {
     const gitStore = this.gitStoreCache.get(repository)
     const branch = await gitStore.createBranch(name, startPoint, noTrackOption)
 
@@ -4713,12 +4970,34 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _createTag(repository: Repository, name: string, sha: string) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.createTagCore(repository, name, sha)
+      )
+    })
+  }
+
+  private async createTagCore(
+    repository: Repository,
+    name: string,
+    sha: string
+  ) {
     const gitStore = this.gitStoreCache.get(repository)
     await gitStore.createTag(name, sha)
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _deleteTag(repository: Repository, name: string) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.deleteTagCore(repository, name)
+      )
+    })
+  }
+
+  private async deleteTagCore(repository: Repository, name: string) {
     const gitStore = this.gitStoreCache.get(repository)
     await gitStore.deleteTag(name)
   }
@@ -4757,6 +5036,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * Note: This shouldn't be called directly. See `Dispatcher`.
    */
   public async _checkoutBranch(
+    repository: Repository,
+    branch: Branch,
+    explicitStrategy?: UncommittedChangesStrategy
+  ): Promise<Repository> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.checkoutBranchCore(repository, branch, explicitStrategy)
+      )
+    })
+  }
+
+  private async checkoutBranchCore(
     repository: Repository,
     branch: Branch,
     explicitStrategy?: UncommittedChangesStrategy
@@ -4978,6 +5270,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     commit: CommitOneLine
   ): Promise<Repository> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.checkoutCommitCore(repository, commit)
+      )
+    })
+  }
+
+  private async checkoutCommitCore(
+    repository: Repository,
+    commit: CommitOneLine
+  ): Promise<Repository> {
     const repositoryState = this.repositoryStateCache.get(repository)
     const { branchesState } = repositoryState
     const { tip } = branchesState
@@ -5026,6 +5330,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
    *                                dialog if an existing stash exists.
    */
   public async _createStashForCurrentBranch(
+    repository: Repository,
+    showConfirmationDialog: boolean
+  ): Promise<boolean> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.createStashForCurrentBranchCore(repository, showConfirmationDialog)
+      )
+    })
+  }
+
+  private async createStashForCurrentBranchCore(
     repository: Repository,
     showConfirmationDialog: boolean
   ): Promise<boolean> {
@@ -5216,6 +5532,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     const association = getRepositoryAssociation(repository)
     const previous = this.repositoryAssociations.get(key)
     this.repositoryAssociations.set(key, association)
+    this.assistedCommits.context.abortUnauthorized()
 
     if (previous === undefined || previous === association) {
       return
@@ -5363,6 +5680,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     branch: Branch,
     newName: string
   ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.renameBranchCore(repository, branch, newName)
+      )
+    })
+  }
+
+  private async renameBranchCore(
+    repository: Repository,
+    branch: Branch,
+    newName: string
+  ): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
     await gitStore.performFailableOperation(async () => {
       await renameBranch(repository, branch, newName)
@@ -5379,6 +5709,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _deleteBranch(
+    repository: Repository,
+    branch: Branch,
+    includeUpstream?: boolean,
+    toCheckout?: Branch | null
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.deleteBranchCore(repository, branch, includeUpstream, toCheckout)
+      )
+    })
+  }
+
+  private async deleteBranchCore(
     repository: Repository,
     branch: Branch,
     includeUpstream?: boolean,
@@ -5521,9 +5865,51 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     options?: PushOptions
   ): Promise<void> {
-    return this.withRefreshedGitHubRepository(repository, repository => {
-      return this.performPush(repository, options)
+    return this.withAssistedCommitMutationResources(repository, () =>
+      this.withRefreshedGitHubRepository(repository, repository =>
+        this.performPush(repository, options)
+      )
+    )
+  }
+
+  /** Hand accepted local commits to the ordinary Push action after ownership settles. */
+  private async pushAfterCommit(
+    repository: Repository,
+    branchRef: string | null
+  ): Promise<void> {
+    const gitStore = this.gitStoreCache.get(repository)
+    const branch = await gitStore.performFailableOperation(async () => {
+      await gitStore.loadRemotes()
+      const status = await this._loadStatus(repository, false, true)
+      if (
+        branchRef === null ||
+        status?.currentBranch === undefined ||
+        `refs/heads/${status.currentBranch}` !== branchRef
+      ) {
+        throw new Error(
+          'Commits were saved locally, but the branch changed before automatic push. Review the current branch and use Push.'
+        )
+      }
+      const branch = this.getBranchToPush(repository)
+      if (branch === undefined || branch.ref !== branchRef) {
+        throw new Error(
+          'Commits were saved locally. Refresh the repository and use Push.'
+        )
+      }
+      return branch
     })
+    if (branch !== undefined) {
+      try {
+        await this._push(repository, { branch })
+      } catch (error) {
+        this.emitError(
+          new ErrorWithMetadata(error, {
+            repository,
+            retryAction: { type: RetryActionType.Push, repository },
+          })
+        )
+      }
+    }
   }
 
   private getBranchToPush(
@@ -5568,7 +5954,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
-    return this.withPushPullFetch(repository, async () => {
+    let started = false
+    await this.withPushPullFetch(repository, async () => {
+      started = true
       const branch = this.getBranchToPush(repository, options)
 
       if (branch === undefined) {
@@ -5576,32 +5964,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
       }
 
       const remoteName = branch.upstreamRemoteName || remote.name
-
-      const pushTitle = `Pushing to ${remoteName}`
-
-      // Emit an initial progress even before our push begins
-      // since we're doing some work to get remotes up front.
-      this.updatePushPullFetchProgress(repository, {
-        kind: 'push',
-        title: pushTitle,
-        value: 0,
-        remote: remoteName,
-        branch: branch.name,
-      })
-
-      // Let's say that a push takes roughly twice as long as a fetch,
-      // this is of course highly inaccurate.
-      let pushWeight = 2.5
-      let fetchWeight = 1
-
-      // Let's leave 10% at the end for refreshing
-      const refreshWeight = 0.1
-
-      // Scale pull and fetch weights to be between 0 and 0.9.
-      const scale = (1 / (pushWeight + fetchWeight)) * (1 - refreshWeight)
-
-      pushWeight *= scale
-      fetchWeight *= scale
 
       const retryAction: RetryAction = {
         type: RetryActionType.Push,
@@ -5649,64 +6011,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       const gitStore = this.gitStoreCache.get(repository)
       await gitStore.performFailableOperation(
         async () => {
-          let aborted = false
-          await pushRepo(
-            repository,
-            safeRemote,
-            branch.name,
-            branch.upstreamWithoutRemote,
-            gitStore.tagsToPush,
-            {
-              onHookFailure: this.onHookFailure(() => (aborted = true)),
-              ...options,
-            },
-            progress => {
-              this.updatePushPullFetchProgress(repository, {
-                ...progress,
-                title: pushTitle,
-                value: pushWeight * progress.value,
-              })
-            }
-          ).catch(err => (aborted ? undefined : Promise.reject(err)))
-
-          if (aborted) {
-            return
-          }
-
-          gitStore.clearTagsToPush()
-
-          await gitStore.fetchRemotes([safeRemote], false, fetchProgress => {
-            this.updatePushPullFetchProgress(repository, {
-              ...fetchProgress,
-              value: pushWeight + fetchProgress.value * fetchWeight,
-            })
-          })
-
-          const refreshTitle = __DARWIN__
-            ? 'Refreshing Repository'
-            : 'Refreshing repository'
-          const refreshStartProgress = pushWeight + fetchWeight
-
-          this.updatePushPullFetchProgress(repository, {
-            kind: 'generic',
-            title: refreshTitle,
-            description: 'Fast-forwarding branches',
-            value: refreshStartProgress,
-          })
-
-          await this.fastForwardBranches(repository)
-
-          this.updatePushPullFetchProgress(repository, {
-            kind: 'generic',
-            title: refreshTitle,
-            value: refreshStartProgress + refreshWeight * 0.5,
-          })
-
-          // manually refresh branch protections after the push, to ensure
-          // any new branch will immediately report as protected
-          await this.refreshBranchProtectionState(repository)
-
-          await this._refreshRepository(repository)
+          await this.performPushBranch(repository, branch, safeRemote, options)
         },
         { retryAction }
       )
@@ -5714,104 +6019,217 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.updatePushPullFetchProgress(repository, null)
 
       this.updateMenuLabelsForSelectedRepository()
-
-      // Note that we're using `getAccountForRepository` here instead
-      // of the `account` instance we've got and that's because recordPush
-      // needs to be able to differentiate between a GHES account and a
-      // generic account and it can't do that only based on the endpoint.
-      this.statsStore.recordPush(
-        getAccountForRepository(this.accounts, repository),
-        options
-      )
     })
+    if (!started) {
+      this.emitError(
+        new ErrorWithMetadata(
+          new Error(
+            'The repository is busy. Wait for the current operation to finish and try pushing again.'
+          ),
+          {
+            repository,
+            retryAction: { type: RetryActionType.Push, repository },
+          }
+        )
+      )
+    }
+  }
+
+  /** Ordinary native Push, shared by explicit and post-commit publication. */
+  private async performPushBranch(
+    repository: Repository,
+    branch: Branch,
+    remote: IRemote,
+    options?: PushOptions
+  ): Promise<void> {
+    const gitStore = this.gitStoreCache.get(repository)
+    const pushTitle = `Pushing to ${remote.name}`
+    const pushWeight = (2.5 / 3.5) * 0.9
+    const fetchWeight = (1 / 3.5) * 0.9
+    this.updatePushPullFetchProgress(repository, {
+      kind: 'push',
+      title: pushTitle,
+      value: 0,
+      remote: remote.name,
+      branch: branch.name,
+    })
+    let aborted = false
+    const hookFailure =
+      options?.onHookFailure ?? this.onHookFailure(() => (aborted = true))
+    try {
+      await pushRepo(
+        repository,
+        remote,
+        branch.name,
+        branch.upstreamWithoutRemote,
+        gitStore.tagsToPush,
+        {
+          ...options,
+          onHookFailure: hookFailure,
+        },
+        progress => {
+          this.updatePushPullFetchProgress(repository, {
+            ...progress,
+            title: pushTitle,
+            value: pushWeight * progress.value,
+          })
+        }
+      )
+    } catch (error) {
+      if (!aborted) {
+        throw error
+      }
+      return
+    }
+    if (aborted) {
+      return
+    }
+    this.statsStore.recordPush(
+      getAccountForRepository(this.accounts, repository),
+      options
+    )
+    gitStore.clearTagsToPush()
+    await gitStore.fetchRemotes([remote], false, progress => {
+      this.updatePushPullFetchProgress(repository, {
+        ...progress,
+        value: pushWeight + progress.value * fetchWeight,
+      })
+    })
+    const title = __DARWIN__ ? 'Refreshing Repository' : 'Refreshing repository'
+    this.updatePushPullFetchProgress(repository, {
+      kind: 'generic',
+      title,
+      description: 'Fast-forwarding branches',
+      value: pushWeight + fetchWeight,
+    })
+    await this.fastForwardBranches(repository)
+    this.updatePushPullFetchProgress(repository, {
+      kind: 'generic',
+      title,
+      value: 0.95,
+    })
+    await this.refreshBranchProtectionState(repository)
+    await this._refreshRepository(repository)
   }
 
   private async withIsCommitting(
     repository: Repository,
+    files: ReadonlyArray<WorkingDirectoryFileChange>,
     fn: () => Promise<boolean>
   ): Promise<boolean> {
-    const state = this.repositoryStateCache.get(repository)
-    // ensure the user doesn't try and commit again
-    if (state.isCommitting || this.isWorktreeMoving(repository)) {
+    if (this.isWorktreeMoving(repository)) {
       return false
     }
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      const state = this.repositoryStateCache.get(repository)
+      // ensure the user doesn't try and commit again
+      if (state.isCommitting || this.isWorktreeMoving(repository)) {
+        return false
+      }
 
-    this.repositoryStateCache.update(repository, () => ({
-      isCommitting: true,
-      hookProgress: null,
-      subscribeToCommitOutput: null,
-    }))
-    this.emitUpdate()
+      this.assistedCommits.readers.beginManual(repository, files)
 
-    try {
-      return await fn()
-    } finally {
-      this.repositoryStateCache.update(repository, () => ({
-        isCommitting: false,
-        hookProgress: null,
-        subscribeToCommitOutput: null,
-      }))
-      this.emitUpdate()
-    }
+      try {
+        this.repositoryStateCache.update(repository, () => ({
+          isCommitting: true,
+          hookProgress: null,
+          subscribeToCommitOutput: null,
+        }))
+        this.emitUpdate()
+        return await withRepositoryGitOperation(repository.path, 'mutation', fn)
+      } finally {
+        this.assistedCommits.readers.finishManual(repository)
+        this.repositoryStateCache.update(repository, () => ({
+          isCommitting: false,
+          hookProgress: null,
+          subscribeToCommitOutput: null,
+        }))
+        this.emitUpdate()
+      }
+    })
   }
 
   private async withIsGeneratingCommitMessage(
     repository: Repository,
     fn: (signal: AbortSignal) => Promise<boolean>
   ): Promise<boolean> {
-    const state = this.repositoryStateCache.get(repository)
-    // ensure the user doesn't try and commit again
-    if (state.isGeneratingCommitMessage || this.isWorktreeMoving(repository)) {
+    if (this.isWorktreeMoving(repository)) {
       return false
     }
-
-    const abortController = new AbortController()
-
-    this.repositoryStateCache.update(repository, () => ({
-      isGeneratingCommitMessage: true,
-      commitMessageGenerationAbortController: abortController,
-    }))
-    this.emitUpdate()
-
-    try {
-      return await fn(abortController.signal)
-    } finally {
-      const currentState = this.repositoryStateCache.get(repository)
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      const state = this.repositoryStateCache.get(repository)
+      // ensure the user doesn't try and commit again
       if (
-        currentState.commitMessageGenerationAbortController === abortController
+        state.isGeneratingCommitMessage ||
+        this.isWorktreeMoving(repository)
       ) {
-        this.repositoryStateCache.update(repository, () => ({
-          isGeneratingCommitMessage: false,
-          commitMessageGenerationAbortController: null,
-        }))
-        this.emitUpdate()
+        return false
       }
-    }
+
+      const abortController = new AbortController()
+
+      this.repositoryStateCache.update(repository, () => ({
+        isGeneratingCommitMessage: true,
+        commitMessageGenerationAbortController: abortController,
+      }))
+      this.emitUpdate()
+
+      try {
+        return await withRepositoryGitOperation(
+          repository.path,
+          'mutation',
+          () => fn(abortController.signal)
+        )
+      } finally {
+        const currentState = this.repositoryStateCache.get(repository)
+        if (
+          currentState.commitMessageGenerationAbortController ===
+          abortController
+        ) {
+          this.repositoryStateCache.update(repository, () => ({
+            isGeneratingCommitMessage: false,
+            commitMessageGenerationAbortController: null,
+          }))
+          this.emitUpdate()
+        }
+      }
+    })
   }
 
   private async withPushPullFetch(
     repository: Repository,
     fn: () => Promise<void>
   ): Promise<void> {
-    const state = this.repositoryStateCache.get(repository)
-    // Don't allow concurrent network operations.
-    if (state.isPushPullFetchInProgress || this.isWorktreeMoving(repository)) {
+    if (this.isWorktreeMoving(repository)) {
       return
     }
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      const state = this.repositoryStateCache.get(repository)
+      // Don't allow concurrent network operations.
+      if (
+        state.isPushPullFetchInProgress ||
+        this.isWorktreeMoving(repository)
+      ) {
+        return
+      }
 
-    this.repositoryStateCache.update(repository, () => ({
-      isPushPullFetchInProgress: true,
-    }))
-    this.emitUpdate()
-
-    try {
-      await fn()
-    } finally {
       this.repositoryStateCache.update(repository, () => ({
-        isPushPullFetchInProgress: false,
+        isPushPullFetchInProgress: true,
       }))
       this.emitUpdate()
-    }
+
+      try {
+        await withRepositoryGitOperation(repository.path, 'mutation', fn)
+      } finally {
+        this.repositoryStateCache.update(repository, () => ({
+          isPushPullFetchInProgress: false,
+        }))
+        this.emitUpdate()
+      }
+    })
   }
 
   public async _pull(repository: Repository): Promise<void> {
@@ -5905,20 +6323,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
                       value: progress.value * pullWeight,
                     })
                   },
-                  onHookFailure: (hookName, terminalOutput) =>
-                    new Promise(resolve => {
-                      this._showPopup({
-                        type: PopupType.HookFailed,
-                        hookName,
-                        terminalOutput,
-                        resolve: resolution => {
-                          if (resolution === 'abort') {
-                            aborted = true
-                          }
-                          resolve(resolution)
-                        },
-                      })
-                    }),
+                  onHookFailure: this.onHookFailure(() => (aborted = true)),
                 })
                 return true
               },
@@ -5990,6 +6395,29 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _publishRepository(
+    repository: Repository,
+    name: string,
+    description: string,
+    private_: boolean,
+    account: Account,
+    org: IAPIOrganization | null
+  ): Promise<Repository> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.publishRepositoryCore(
+          repository,
+          name,
+          description,
+          private_,
+          account,
+          org
+        )
+      )
+    })
+  }
+
+  private async publishRepositoryCore(
     repository: Repository,
     name: string,
     description: string,
@@ -6142,6 +6570,33 @@ export class AppStore extends TypedBaseStore<IAppState> {
     files: ReadonlyArray<WorkingDirectoryFileChange>,
     moveToTrash: boolean = true
   ) {
+    this.assistedCommits.state.assertAvailable(repository)
+    const paths = [
+      ...new Set(
+        files.flatMap(file => [
+          Path.resolve(repository.path, file.path),
+          ...(file.status.kind === AppFileStatusKind.Renamed
+            ? [Path.resolve(repository.path, file.status.oldPath)]
+            : []),
+        ])
+      ),
+    ]
+    const guard = (index: number): Promise<void> =>
+      index === paths.length
+        ? withRepositoryGitOperation(repository.path, 'mutation', () =>
+            this.discardChangesCore(repository, files, moveToTrash)
+          )
+        : this.assistedCommits.state.withDestruction(paths[index], () =>
+            guard(index + 1)
+          )
+    return guard(0)
+  }
+
+  private async discardChangesCore(
+    repository: Repository,
+    files: ReadonlyArray<WorkingDirectoryFileChange>,
+    moveToTrash: boolean = true
+  ) {
     const gitStore = this.gitStoreCache.get(repository)
 
     const { askForConfirmationOnDiscardChangesPermanently } = this.getState()
@@ -6170,6 +6625,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
     diff: ITextDiff,
     selection: DiffSelection
   ) {
+    this.assistedCommits.state.assertAvailable(repository)
+    return this.assistedCommits.state.withDestruction(
+      Path.resolve(repository.path, filePath),
+      () =>
+        withRepositoryGitOperation(repository.path, 'mutation', () =>
+          this.discardChangesFromSelectionCore(
+            repository,
+            filePath,
+            diff,
+            selection
+          )
+        )
+    )
+  }
+
+  private async discardChangesFromSelectionCore(
+    repository: Repository,
+    filePath: string,
+    diff: ITextDiff,
+    selection: DiffSelection
+  ) {
     const gitStore = this.gitStoreCache.get(repository)
     await gitStore.discardChangesFromSelection(filePath, diff, selection)
 
@@ -6177,6 +6653,25 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _startAmendingRepository(
+    repository: Repository,
+    commit: Commit,
+    isLocalCommit: boolean,
+    continueWithForcePush: boolean = false
+  ) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.startAmendingRepositoryCore(
+          repository,
+          commit,
+          isLocalCommit,
+          continueWithForcePush
+        )
+      )
+    })
+  }
+
+  private async startAmendingRepositoryCore(
     repository: Repository,
     commit: Commit,
     isLocalCommit: boolean,
@@ -6215,6 +6710,15 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _stopAmendingRepository(repository: Repository) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.stopAmendingRepositoryCore(repository)
+      )
+    })
+  }
+
+  private async stopAmendingRepositoryCore(repository: Repository) {
     this.setRepositoryCommitToAmend(repository, null)
   }
 
@@ -6232,6 +6736,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _undoCommit(
+    repository: Repository,
+    commit: Commit,
+    showConfirmationDialog: boolean
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.undoCommitCore(repository, commit, showConfirmationDialog)
+      )
+    })
+  }
+
+  private async undoCommitCore(
     repository: Repository,
     commit: Commit,
     showConfirmationDialog: boolean
@@ -6277,6 +6794,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     commit: Commit,
     showConfirmationDialog: boolean
   ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.resetToCommitCore(repository, commit, showConfirmationDialog)
+      )
+    })
+  }
+
+  private async resetToCommitCore(
+    repository: Repository,
+    commit: Commit,
+    showConfirmationDialog: boolean
+  ): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
     const repositoryState = this.repositoryStateCache.get(repository)
     const { changesState } = repositoryState
@@ -6317,6 +6847,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
    *
    */
   public async _fetchRefspec(
+    repository: Repository,
+    refspec: string
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.fetchRefspecCore(repository, refspec)
+      )
+    })
+  }
+
+  private async fetchRefspecCore(
     repository: Repository,
     refspec: string
   ): Promise<void> {
@@ -6499,6 +7041,68 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     worktree: WorktreeEntry
   ): Promise<Repository> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.switchWorktreeCore(repository, worktree)
+      )
+    })
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public async _addWorktreeAndSwitch(
+    repository: Repository,
+    path: string,
+    options: IAddWorktreeOptions
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, () =>
+      this.assistedCommits.state.withDestruction(path, async () => {
+        const canonicalPath = await canonicalMutationPath(path)
+        await addWorktree(repository, canonicalPath, options)
+        const worktree = (await listWorktrees(repository)).find(
+          worktree => worktree.path === Path.normalize(canonicalPath)
+        )
+        if (worktree === undefined) {
+          throw new Error('Failed to find the newly created worktree')
+        }
+        this.statsStore.increment('worktreeCreatedCount')
+        await this._switchWorktree(repository, worktree)
+      })
+    )
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public async _updateRepositoryCommitter(
+    repository: Repository,
+    name: string | null | undefined,
+    email: string | null | undefined
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      for (const [key, value] of [
+        ['user.name', name],
+        ['user.email', email],
+      ] as const) {
+        await this.updateRepositoryCommitterValue(repository, key, value)
+      }
+    })
+  }
+
+  private async updateRepositoryCommitterValue(
+    repository: Repository,
+    key: 'user.name' | 'user.email',
+    value: string | null | undefined
+  ): Promise<void> {
+    if (value === null) {
+      await removeConfigValue(repository, key)
+    } else if (value !== undefined) {
+      await setConfigValue(repository, key, value)
+    }
+  }
+
+  private async switchWorktreeCore(
+    repository: Repository,
+    worktree: WorktreeEntry
+  ): Promise<Repository> {
     const type = await getRepositoryType(worktree.path).catch(e => {
       log.error('Could not determine repository type', e)
       return { kind: 'missing' } as RepositoryType
@@ -6581,6 +7185,22 @@ export class AppStore extends TypedBaseStore<IAppState> {
     worktreePath: string,
     options: IDeleteWorktreeOptions = {}
   ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
+    assertRepositoryGitAvailable(worktreePath)
+    return this.assistedCommits.state.withDestruction(worktreePath, () =>
+      withRepositoryGitOperation(repository.path, 'mutation', () =>
+        withRepositoryGitOperation(worktreePath, 'mutation', () =>
+          this.deleteWorktreeCore(repository, worktreePath, options)
+        )
+      )
+    )
+  }
+
+  private async deleteWorktreeCore(
+    repository: Repository,
+    worktreePath: string,
+    options: IDeleteWorktreeOptions
+  ): Promise<void> {
     if (options.isMissing === true) {
       const worktrees = await listWorktrees(repository)
 
@@ -6638,15 +7258,15 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     await this._refreshWorktrees(repository)
     this.statsStore.increment('worktreeDeletedCount')
-    this.checkoutAfterRemoval(repository, options)
+    await this.checkoutAfterRemoval(repository, options)
   }
 
-  private checkoutAfterRemoval(
+  private async checkoutAfterRemoval(
     repository: Repository,
     { checkout }: IDeleteWorktreeOptions
-  ) {
+  ): Promise<void> {
     if (checkout !== undefined) {
-      this._checkoutBranch(
+      await this._checkoutBranch(
         repository,
         checkout.branch,
         checkout.strategy
@@ -6660,33 +7280,59 @@ export class AppStore extends TypedBaseStore<IAppState> {
     worktreePath: string,
     newPath: string
   ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
+    assertRepositoryGitAvailable(worktreePath)
     const isCurrentWorktree = repository.path === worktreePath
-    if (!isCurrentWorktree) {
+    const key = getRepositoryStateKey(repository)
+    if (
+      isCurrentWorktree &&
+      (this.isRepositoryBusy(repository) || this.movingWorktrees.has(key))
+    ) {
+      throw new Error(
+        'The worktree cannot be renamed while an operation is in progress. Please try again once it has finished.'
+      )
+    }
+    if (isCurrentWorktree) {
+      this.movingWorktrees.add(key)
+    }
+    try {
+      return await this.assistedCommits.state.withDestruction(
+        worktreePath,
+        () =>
+          this.assistedCommits.state.withDestruction(newPath, () =>
+            withRepositoryGitOperation(repository.path, 'mutation', () =>
+              withRepositoryGitOperation(worktreePath, 'mutation', () =>
+                this.moveWorktreeCore(repository, worktreePath, newPath)
+              )
+            )
+          )
+      )
+    } finally {
+      if (isCurrentWorktree) {
+        this.movingWorktrees.delete(key)
+      }
+    }
+  }
+
+  private async moveWorktreeCore(
+    repository: Repository,
+    worktreePath: string,
+    newPath: string
+  ): Promise<void> {
+    if (repository.path !== worktreePath) {
       await moveWorktree(repository, worktreePath, newPath)
       await this._refreshWorktrees(repository)
       return
     }
 
-    const key = getRepositoryStateKey(repository)
-    if (this.isRepositoryBusy(repository) || this.movingWorktrees.has(key)) {
-      throw new Error(
-        'The worktree cannot be renamed while an operation is in progress. Please try again once it has finished.'
-      )
-    }
-
-    this.movingWorktrees.add(key)
-    try {
-      await this.moveCurrentWorktree(repository, worktreePath, newPath)
-    } finally {
-      this.movingWorktrees.delete(key)
-    }
+    await this.moveCurrentWorktree(repository, worktreePath, newPath)
   }
 
   private async moveCurrentWorktree(
     repository: Repository,
     worktreePath: string,
     newPath: string
-  ) {
+  ): Promise<void> {
     await moveWorktree(repository, worktreePath, newPath)
 
     // The worktree being renamed is the currently selected one, so switch to
@@ -7722,6 +8368,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
   public async _applyCopilotConflictResolutions(
     repository: Repository
   ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.applyCopilotConflictResolutionsCore(repository)
+      )
+    })
+  }
+
+  private async applyCopilotConflictResolutionsCore(
+    repository: Repository
+  ): Promise<void> {
     const state = this.repositoryStateCache.get(repository)
     const { multiCommitOperationState } = state
     if (multiCommitOperationState === null) {
@@ -7814,7 +8471,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     if (pathsToStage.length > 0) {
       await git(
-        ['add', '--', ...pathsToStage],
+        ['--literal-pathspecs', 'add', '--', ...pathsToStage],
         repository.path,
         'copilotConflictResolution'
       )
@@ -7862,31 +8519,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
     return Promise.resolve()
   }
 
-  private onHookProgress = (respository: Repository) => {
-    return (hookProgress: HookProgress) => {
-      this.repositoryStateCache.update(respository, () => ({ hookProgress }))
-      this.emitUpdate()
-    }
-  }
+  private onHookProgress = (repository: Repository) =>
+    this.assistedCommits.dialogs.hookProgress(repository)
 
-  private onHookFailure = (onAborted: () => void) => {
-    return (hookName: string, terminalOutput: TerminalOutput) =>
-      new Promise<'abort' | 'ignore'>(resolve => {
-        this._showPopup({
-          type: PopupType.HookFailed,
-          hookName,
-          terminalOutput,
-          resolve: resolution => {
-            if (resolution === 'abort') {
-              onAborted()
-            }
-            resolve(resolution)
-          },
-        })
-      })
-  }
+  private onHookFailure = (onAborted: () => void) =>
+    this.assistedCommits.dialogs.ordinaryHookFailure(onAborted)
 
   public async _mergeBranch(
+    repository: Repository,
+    sourceBranch: Branch,
+    mergeStatus: MergeTreeResult | null,
+    isSquash: boolean = false
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.mergeBranchCore(repository, sourceBranch, mergeStatus, isSquash)
+      )
+    })
+  }
+
+  private async mergeBranchCore(
     repository: Repository,
     sourceBranch: Branch,
     mergeStatus: MergeTreeResult | null,
@@ -7993,6 +8646,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     baseBranch: Branch,
     targetBranch: Branch
   ): Promise<RebaseResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.rebaseCore(repository, baseBranch, targetBranch)
+      )
+    })
+  }
+
+  private async rebaseCore(
+    repository: Repository,
+    baseBranch: Branch,
+    targetBranch: Branch
+  ): Promise<RebaseResult> {
     const progressCallback =
       this.getMultiCommitOperationProgressCallBack(repository)
     const gitStore = this.gitStoreCache.get(repository)
@@ -8013,6 +8679,15 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _abortRebase(repository: Repository) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.abortRebaseCore(repository)
+      )
+    })
+  }
+
+  private async abortRebaseCore(repository: Repository) {
     const gitStore = this.gitStoreCache.get(repository)
     return await gitStore.performFailableOperation(() =>
       abortRebase(repository)
@@ -8021,6 +8696,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _continueRebase(
+    repository: Repository,
+    workingDirectory: WorkingDirectoryStatus,
+    manualResolutions: ReadonlyMap<string, ManualConflictResolution>
+  ): Promise<RebaseResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.continueRebaseCore(repository, workingDirectory, manualResolutions)
+      )
+    })
+  }
+
+  private async continueRebaseCore(
     repository: Repository,
     workingDirectory: WorkingDirectoryStatus,
     manualResolutions: ReadonlyMap<string, ManualConflictResolution>
@@ -8040,12 +8728,30 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _abortMerge(repository: Repository): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.abortMergeCore(repository)
+      )
+    })
+  }
+
+  private async abortMergeCore(repository: Repository): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
     return await gitStore.performFailableOperation(() => abortMerge(repository))
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _abortSquashMerge(repository: Repository): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.abortSquashMergeCore(repository)
+      )
+    })
+  }
+
+  private async abortSquashMergeCore(repository: Repository): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
     const {
       branchesState,
@@ -8091,6 +8797,23 @@ export class AppStore extends TypedBaseStore<IAppState> {
     workingDirectory: WorkingDirectoryStatus,
     manualResolutions: Map<string, ManualConflictResolution>
   ): Promise<string | undefined> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.finishConflictedMergeCore(
+          repository,
+          workingDirectory,
+          manualResolutions
+        )
+      )
+    })
+  }
+
+  private async finishConflictedMergeCore(
+    repository: Repository,
+    workingDirectory: WorkingDirectoryStatus,
+    manualResolutions: Map<string, ManualConflictResolution>
+  ): Promise<string | undefined> {
     /**
      *  The assumption made here is that all other files that were part of this merge
      *  have already been staged by git automatically (or manually by the user via CLI).
@@ -8117,6 +8840,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _setRemoteURL(
+    repository: Repository,
+    name: string,
+    url: string
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.setRemoteURLCore(repository, name, url)
+      )
+    })
+  }
+
+  private async setRemoteURLCore(
     repository: Repository,
     name: string,
     url: string
@@ -8263,6 +8999,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _saveGitIgnore(
+    repository: Repository,
+    text: string
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.saveGitIgnoreCore(repository, text)
+      )
+    })
+  }
+
+  private async saveGitIgnoreCore(
     repository: Repository,
     text: string
   ): Promise<void> {
@@ -8534,11 +9282,35 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     pattern: string | string[]
   ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.appendIgnoreRuleCore(repository, pattern)
+      )
+    })
+  }
+
+  private async appendIgnoreRuleCore(
+    repository: Repository,
+    pattern: string | string[]
+  ): Promise<void> {
     await appendIgnoreRule(repository, pattern)
     return this._refreshRepository(repository)
   }
 
   public async _appendIgnoreFile(
+    repository: Repository,
+    filePath: string | string[]
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.appendIgnoreFileCore(repository, filePath)
+      )
+    })
+  }
+
+  private async appendIgnoreFileCore(
     repository: Repository,
     filePath: string | string[]
   ): Promise<void> {
@@ -8929,6 +9701,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
   }
 
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public async _createRepository<T>(
+    path: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    return withRepositoryGitResourceMutation([path], () =>
+      this.assistedCommits.state.withDestruction(path, () =>
+        withRepositoryGitOperation(path, 'mutation', operation)
+      )
+    )
+  }
+
   public async _addRepositories(
     paths: ReadonlyArray<string>
   ): Promise<ReadonlyArray<Repository>> {
@@ -9055,40 +9839,84 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _relocateRepository(repository: Repository): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
+    return this.assistedCommits.state.withDestruction(repository.path, () =>
+      withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.relocateRepositoryCore(repository)
+      )
+    )
+  }
+
+  private async relocateRepositoryCore(repository: Repository): Promise<void> {
     const path = await showOpenDialog({ properties: ['openDirectory'] })
 
     if (path === null) {
       return
     }
 
-    const rt = await getRepositoryType(path)
+    return this.assistedCommits.state.withDestruction(path, async () => {
+      const rt = await getRepositoryType(path)
 
-    if (rt.kind === 'regular') {
-      // The repository has moved, so any main worktree we recorded before now
-      // points at where it used to be. Resolve it again from the new location.
-      await this.repositoriesStore.updateRepositoryPath(
-        repository,
-        rt.topLevelWorkingDirectory,
-        rt.gitDir,
-        await this.findMainWorktreePath(rt.topLevelWorkingDirectory)
-      )
-    } else if (rt.kind === 'unsafe') {
-      // Git refuses to run in a repository it considers unsafe, so there's no
-      // resolving the main worktree here. Drop the recorded path rather than
-      // keep one we know is stale.
-      await this.repositoriesStore.updateRepositoryPath(
-        repository,
-        path,
-        undefined,
-        undefined,
-        true
-      )
-    } else {
-      this.emitError(new Error(this.getInvalidRepoPathsMessage([path])))
-    }
+      if (rt.kind === 'regular') {
+        // The repository has moved, so any main worktree we recorded before now
+        // points at where it used to be. Resolve it again from the new location.
+        await this.repositoriesStore.updateRepositoryPath(
+          repository,
+          rt.topLevelWorkingDirectory,
+          rt.gitDir,
+          await this.findMainWorktreePath(rt.topLevelWorkingDirectory)
+        )
+      } else if (rt.kind === 'unsafe') {
+        // Git refuses to run in a repository it considers unsafe, so there's no
+        // resolving the main worktree here. Drop the recorded path rather than
+        // keep one we know is stale.
+        await this.repositoriesStore.updateRepositoryPath(
+          repository,
+          path,
+          undefined,
+          undefined,
+          true
+        )
+      } else {
+        this.emitError(new Error(this.getInvalidRepoPathsMessage([path])))
+      }
+    })
   }
 
   public async _removeRepository(
+    repository: Repository | CloningRepository,
+    moveToTrash: boolean
+  ): Promise<void> {
+    this.assistedCommits.state.assertAvailable(repository)
+    if (moveToTrash) {
+      return this.assistedCommits.state.withDestruction(repository.path, () =>
+        withRepositoryGitOperation(repository.path, 'mutation', () =>
+          this.removeRepositoryCore(repository, moveToTrash)
+        )
+      )
+    }
+    return withRepositoryGitOperation(repository.path, 'mutation', () =>
+      this.removeRepositoryCore(repository, moveToTrash)
+    )
+  }
+
+  private async withAssistedCommitMutationResources<T>(
+    repository: Repository | CloningRepository,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    this.assistedCommits.state.assertAvailable(repository)
+    return withRepositoryGitOperation(repository.path, 'mutation', async () => {
+      const resources = await getAssistedCommitProtectedPaths(repository.path)
+      const paths = [
+        ...new Set(
+          await Promise.all(resources.map(path => canonicalMutationPath(path)))
+        ),
+      ]
+      return withRepositoryGitResourceMutation(paths, operation)
+    })
+  }
+
+  private async removeRepositoryCore(
     repository: Repository | CloningRepository,
     moveToTrash: boolean
   ): Promise<void> {
@@ -9222,6 +10050,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _revertCommit(
+    repository: Repository,
+    commit: Commit
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.revertCommitCore(repository, commit)
+      )
+    })
+  }
+
+  private async revertCommitCore(
     repository: Repository,
     commit: Commit
   ): Promise<void> {
@@ -9501,6 +10341,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
   public async _updateExistingUpstreamRemote(
     repository: Repository
   ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.updateExistingUpstreamRemoteCore(repository)
+      )
+    })
+  }
+
+  private async updateExistingUpstreamRemoteCore(
+    repository: Repository
+  ): Promise<void> {
     const gitStore = this.gitStoreCache.get(repository)
     await gitStore.updateExistingUpstreamRemote()
 
@@ -9536,6 +10387,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _checkoutPullRequest(
+    repository: RepositoryWithGitHubRepository,
+    prNumber: number,
+    headRepoOwner: string,
+    headCloneUrl: string,
+    headRefName: string
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.checkoutPullRequestCore(
+          repository,
+          prNumber,
+          headRepoOwner,
+          headCloneUrl,
+          headRefName
+        )
+      )
+    })
+  }
+
+  private async checkoutPullRequestCore(
     repository: RepositoryWithGitHubRepository,
     prNumber: number,
     headRepoOwner: string,
@@ -9653,6 +10525,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     showCoAuthoredBy: boolean
   ) {
+    this.assistedCommits.state.assertAvailable(repository)
     this.gitStoreCache.get(repository).setShowCoAuthoredBy(showCoAuthoredBy)
     return Promise.resolve()
   }
@@ -9667,6 +10540,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     coAuthors: ReadonlyArray<Author>
   ) {
+    this.assistedCommits.state.assertAvailable(repository)
     this.gitStoreCache.get(repository).setCoAuthors(coAuthors)
     return Promise.resolve()
   }
@@ -9825,6 +10699,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _popStashEntry(repository: Repository, stashEntry: IStashEntry) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.popStashEntryCore(repository, stashEntry)
+      )
+    })
+  }
+
+  private async popStashEntryCore(
+    repository: Repository,
+    stashEntry: IStashEntry
+  ) {
     await popStashEntry(repository, stashEntry.stashSha)
     log.info(
       `[AppStore. _popStashEntry] popped stash with commit id ${stashEntry.stashSha}`
@@ -9836,6 +10722,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _dropStashEntry(
+    repository: Repository,
+    stashEntry: IStashEntry
+  ) {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.dropStashEntryCore(repository, stashEntry)
+      )
+    })
+  }
+
+  private async dropStashEntryCore(
     repository: Repository,
     stashEntry: IStashEntry
   ) {
@@ -9917,6 +10815,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * as its default remote and associated `GitHubRepository`.
    */
   public async _convertRepositoryToFork(
+    repository: RepositoryWithGitHubRepository,
+    fork: IAPIFullRepository
+  ): Promise<Repository> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.convertRepositoryToForkCore(repository, fork)
+      )
+    })
+  }
+
+  private async convertRepositoryToForkCore(
     repository: RepositoryWithGitHubRepository,
     fork: IAPIFullRepository
   ): Promise<Repository> {
@@ -10085,6 +10995,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     commits: ReadonlyArray<CommitOneLine>
   ): Promise<CherryPickResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.cherryPickCore(repository, commits)
+      )
+    })
+  }
+
+  private async cherryPickCore(
+    repository: Repository,
+    commits: ReadonlyArray<CommitOneLine>
+  ): Promise<CherryPickResult> {
     if (commits.length === 0) {
       log.error('[_cherryPick] - Unable to cherry-pick. No commits provided.')
       return CherryPickResult.UnableToStart
@@ -10147,6 +11069,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     targetBranch: Branch
   ): Promise<string | undefined> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.checkoutBranchReturnNameCore(repository, targetBranch)
+      )
+    })
+  }
+
+  private async checkoutBranchReturnNameCore(
+    repository: Repository,
+    targetBranch: Branch
+  ): Promise<string | undefined> {
     const gitStore = this.gitStoreCache.get(repository)
 
     const checkoutSuccessful = await this.withRefreshedGitHubRepository(
@@ -10168,6 +11102,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _abortCherryPick(
+    repository: Repository,
+    sourceBranch: Branch | null
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.abortCherryPickCore(repository, sourceBranch)
+      )
+    })
+  }
+
+  private async abortCherryPickCore(
     repository: Repository,
     sourceBranch: Branch | null
   ): Promise<void> {
@@ -10212,6 +11158,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     files: ReadonlyArray<WorkingDirectoryFileChange>,
     manualResolutions: ReadonlyMap<string, ManualConflictResolution>
   ): Promise<CherryPickResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.continueCherryPickCore(repository, files, manualResolutions)
+      )
+    })
+  }
+
+  private async continueCherryPickCore(
+    repository: Repository,
+    files: ReadonlyArray<WorkingDirectoryFileChange>,
+    manualResolutions: ReadonlyMap<string, ManualConflictResolution>
+  ): Promise<CherryPickResult> {
     const progressCallback =
       this.getMultiCommitOperationProgressCallBack(repository)
 
@@ -10240,6 +11199,18 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _clearCherryPickingHead(
+    repository: Repository,
+    sourceBranch: Branch | null
+  ): Promise<void> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.clearCherryPickingHeadCore(repository, sourceBranch)
+      )
+    })
+  }
+
+  private async clearCherryPickingHeadCore(
     repository: Repository,
     sourceBranch: Branch | null
   ): Promise<void> {
@@ -10337,6 +11308,25 @@ export class AppStore extends TypedBaseStore<IAppState> {
     beforeCommit: Commit | null,
     lastRetainedCommitRef: string | null
   ): Promise<RebaseResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.reorderCommitsCore(
+          repository,
+          commitsToReorder,
+          beforeCommit,
+          lastRetainedCommitRef
+        )
+      )
+    })
+  }
+
+  private async reorderCommitsCore(
+    repository: Repository,
+    commitsToReorder: ReadonlyArray<Commit>,
+    beforeCommit: Commit | null,
+    lastRetainedCommitRef: string | null
+  ): Promise<RebaseResult> {
     if (commitsToReorder.length === 0) {
       log.error('[_reorder] - Unable to reorder. No commits provided.')
       return RebaseResult.Error
@@ -10360,6 +11350,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _squash(
+    repository: Repository,
+    toSquash: ReadonlyArray<Commit>,
+    squashOnto: Commit,
+    lastRetainedCommitRef: string | null,
+    commitContext: ICommitContext
+  ): Promise<RebaseResult> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.squashCore(
+          repository,
+          toSquash,
+          squashOnto,
+          lastRetainedCommitRef,
+          commitContext
+        )
+      )
+    })
+  }
+
+  private async squashCore(
     repository: Repository,
     toSquash: ReadonlyArray<Commit>,
     squashOnto: Commit,
@@ -10391,6 +11402,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _undoMultiCommitOperation(
+    mcos: IMultiCommitOperationState,
+    repository: Repository,
+    commitsCount: number
+  ): Promise<boolean> {
+    return this.withAssistedCommitMutationResources(repository, async () => {
+      this.assistedCommits.state.assertAvailable(repository)
+      return withRepositoryGitOperation(repository.path, 'mutation', () =>
+        this.undoMultiCommitOperationCore(mcos, repository, commitsCount)
+      )
+    })
+  }
+
+  private async undoMultiCommitOperationCore(
     mcos: IMultiCommitOperationState,
     repository: Repository,
     commitsCount: number
@@ -10818,16 +11842,40 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   public async _startPullRequest(repository: Repository) {
-    const { tip, defaultBranch } =
-      this.repositoryStateCache.get(repository).branchesState
+    const { branchesState } = this.repositoryStateCache.get(repository)
+    const { tip } = branchesState
 
     if (tip.kind !== TipState.Valid) {
       // Shouldn't even be able to get here if so - just a type check
       return
     }
 
+    const baseBranch = findContributionTargetDefaultBranch(
+      repository,
+      branchesState
+    )
+
     const currentBranch = tip.branch
-    this._initializePullRequestPreview(repository, defaultBranch, currentBranch)
+    return this._initializePullRequestPreview(
+      repository,
+      baseBranch,
+      currentBranch
+    )
+  }
+
+  private isPullRequestPreviewBlocked(repository: Repository): boolean {
+    if (
+      isAssistedCommitRepositoryLocked(
+        this.repositoryStateCache.get(repository).changesState.assistedCommit
+      ) ||
+      isRepositoryAffectedByAssistedCommit(repository.path)
+    ) {
+      log.info(
+        'Ignoring pull request preview while an assisted commit run protects the repository'
+      )
+      return true
+    }
+    return false
   }
 
   private async _initializePullRequestPreview(
@@ -10835,6 +11883,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     baseBranch: Branch | null,
     currentBranch: Branch
   ) {
+    if (this.isPullRequestPreviewBlocked(repository)) {
+      return
+    }
     if (baseBranch === null) {
       this.showPullRequestPopupNoBaseBranch(repository, currentBranch)
       return
@@ -10938,8 +11989,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     const { branchesState, localCommitSHAs } =
       this.repositoryStateCache.get(repository)
-    const { allBranches, recentBranches, defaultBranch, currentPullRequest } =
+    const { allBranches, recentBranches, currentPullRequest } = branchesState
+    const defaultBranch = findContributionTargetDefaultBranch(
+      repository,
       branchesState
+    )
     const gitStore = this.gitStoreCache.get(repository)
     /*  We only want branches that are also on dotcom such that, when we ask a
      *  user to create a pull request, the base branch also exists on dotcom.
@@ -10980,6 +12034,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     file: CommittedFileChange
   ): Promise<void> {
+    if (this.isPullRequestPreviewBlocked(repository)) {
+      return
+    }
     const { branchesState, pullRequestState } =
       this.repositoryStateCache.get(repository)
 
@@ -11298,12 +12355,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.emitUpdate()
   }
 
-  /**
-   * Resolves a stored account Copilot model selection into a
-   * {@link CopilotModelRequest} suitable for
-   * {@link CopilotStore.generateCommitMessage}. BYOK provider secrets are
-   * read from the OS keychain at call time.
-   */
   private async resolveCopilotModelRequest(
     selection: string | null
   ): Promise<CopilotModelRequest> {
@@ -11409,6 +12460,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       // Treat as add to keep the call idempotent from the UI's perspective.
       return this._addCopilotBYOKProvider(provider, secret ?? null)
     }
+    this.assistedCommits.context.invalidateProvider(provider.id)
 
     // Apply the keychain change first; if it throws, the persisted provider
     // and its in-memory copy stay consistent with the existing secret.
@@ -11435,6 +12487,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (!this.byokProviders.some(p => p.id === id)) {
       return
     }
+    this.assistedCommits.context.invalidateProvider(id)
 
     // Purge the secret first; on failure we keep the provider visible so the
     // user can retry rather than ending up with an orphaned keychain entry
