@@ -91,8 +91,11 @@ jobs:
           node-version: ${{ steps.node.outputs.version }}
           arch: x64
 
+      # The scripts of package.json run through npm, which runs them whichever
+      # tool installed the dependencies: yarn up to upstream 3.6.11, npm from
+      # 3.6.12-beta1 on, so this file serves both branches unchanged.
       - name: Build production app
-        run: yarn build:prod
+        run: npm run build:prod
 
       # The git bundled with the app ships most of its commands as relative
       # links to a single binary. @electron/packager 20 turns such a link into
@@ -119,13 +122,13 @@ jobs:
           echo "$links links in the bundled git, all relative and resolved."
 
       - name: Prepare testing environment
-        run: yarn test:setup
+        run: npm run test:setup
 
       - name: Run unit tests
-        run: yarn test:unit
+        run: npm run test:unit
 
       - name: Run script tests
-        run: yarn test:script
+        run: npm run test:script
 
       # Packaging is half the time of a run, and what it produces is only ever
       # used by a release: the packages of an ordinary push expire untouched
@@ -135,7 +138,7 @@ jobs:
       # broken build or a failing test is the point of the exercise.
       - name: Package application
         if: env.PACKAGING == 'true'
-        run: yarn package
+        run: npm run package
 
       - name: Generate the release notes
         if: startsWith(github.ref, 'refs/tags/')
