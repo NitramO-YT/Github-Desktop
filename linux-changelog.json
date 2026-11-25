@@ -9,6 +9,15 @@
     "inside it, so that merging an upstream release never conflicts here."
   ],
   "releases": {
+    "3.7.0-linux1": [
+      "Several accounts at once, new in this release, change how credentials are stored and handed to git: on Linux they go through the Secret Service (KWallet or GNOME Keyring), so problems signing in, switching accounts or pushing over HTTPS are the most useful to report",
+      "\"Show in your File Manager\" shows the folder in the file manager already running, and brings it to the front when it shows a repository, under Wayland too",
+      "The bundled git keeps its commands as links, as in earlier builds: upstream copies them in full instead, which doubles the size of the installed app",
+      "Also available as a Flatpak, from the package repository or as a .flatpak file: either way, flatpak update brings the versions that follow",
+      "The package repository serves the .deb, the .rpm and the Flatpak, and keeps them up to date through apt, dnf, zypper or flatpak: <https://packages-github-desktop.nitramo.fr/>",
+      "The window shows its own icon under Wayland, and groups with its launcher in the taskbar",
+      "Ptyxis is detected as a terminal, along with the editors and shells upstream added since 3.4.13"
+    ],
     "3.6.12-beta1-linux1": [
       "Preview build, made from the upstream 3.6.12 beta 1: it carries what the next release will bring, and the bugs a beta comes with",
       "\"Show in your File Manager\" shows the folder in the file manager already running, and brings it to the front when it shows a repository, under Wayland too",
