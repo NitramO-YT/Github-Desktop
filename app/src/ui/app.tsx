@@ -140,8 +140,7 @@ import { LocalChangesOverwrittenDialog } from './local-changes-overwritten/local
 import memoizeOne from 'memoize-one'
 import { AheadBehindStore } from '../lib/stores/ahead-behind-store'
 import {
-  getAccountForCommitMessageGeneration,
-  getAccountForCopilotConflictResolution,
+  getAccountForCopilot,
   getAccountForRepository,
 } from '../lib/get-account-for-repository'
 import { CommitOneLine } from '../models/commit'
@@ -203,11 +202,6 @@ import { AboutTestDialog } from './about/about-test-dialog'
 import { TestCLIActionDialog } from './cli-action/test-cli-action-dialog'
 import { TestCopilotSnapshotCardDialog } from './preferences/test-copilot-snapshot-card-dialog'
 import { TestTokenExpirationDialog } from './preferences/test-token-expiration-dialog'
-import {
-  enableCopilotSdkCommitMessageGeneration,
-  enableCopilotAppHandoff,
-  enableWorktreeSupport,
-} from '../lib/feature-flag'
 import {
   getCopilotAccountCacheKey,
   type CopilotFeature,
@@ -549,10 +543,7 @@ export class App extends React.Component<IAppProps, IAppState> {
       case 'open-external-editor':
         return this.openCurrentRepositoryInExternalEditor()
       case 'open-in-copilot-app':
-        if (
-          enableCopilotAppHandoff() &&
-          this.state.selectedState?.type === SelectionType.Repository
-        ) {
+        if (this.state.selectedState?.type === SelectionType.Repository) {
           return this.props.dispatcher.openInCopilotApp(
             this.state.selectedState.repository.path
           )
@@ -983,10 +974,6 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   private showWorktrees() {
-    if (!enableWorktreeSupport()) {
-      return
-    }
-
     const state = this.state.selectedState
     if (state == null || state.type !== SelectionType.Repository) {
       return
@@ -1003,10 +990,6 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   private showCreateWorktree() {
-    if (!enableWorktreeSupport()) {
-      return
-    }
-
     const state = this.state.selectedState
     if (state == null || state.type !== SelectionType.Repository) {
       return
@@ -1815,9 +1798,7 @@ export class App extends React.Component<IAppProps, IAppState> {
               popup.account
             )}
             byokProviders={this.state.byokProviders}
-            showBYOKSettings={enableCopilotSdkCommitMessageGeneration(
-              popup.account
-            )}
+            showBYOKSettings={true}
             alwaysUseCopilotForConflictResolution={
               this.state.alwaysUseCopilotForConflictResolution
             }
@@ -2502,7 +2483,7 @@ export class App extends React.Component<IAppProps, IAppState> {
           return null
         }
 
-        const account = getAccountForCopilotConflictResolution(
+        const account = getAccountForCopilot(
           this.state.accounts,
           popup.repository
         )
@@ -2908,7 +2889,7 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       case PopupType.GenerateCommitMessageOverrideWarning: {
-        const account = getAccountForCommitMessageGeneration(
+        const account = getAccountForCopilot(
           this.state.accounts,
           popup.repository
         )
@@ -2919,10 +2900,7 @@ export class App extends React.Component<IAppProps, IAppState> {
             dispatcher={this.props.dispatcher}
             repository={popup.repository}
             filesSelected={popup.filesSelected}
-            showCopilotInstructionsTip={
-              account !== undefined &&
-              enableCopilotSdkCommitMessageGeneration(account)
-            }
+            showCopilotInstructionsTip={account !== undefined}
             onDismissed={onPopupDismissedFn}
           />
         )
@@ -3470,6 +3448,9 @@ export class App extends React.Component<IAppProps, IAppState> {
   ) => {
     try {
       await this.props.dispatcher.updateRepositoryAccount(repository, login)
+      this.props.dispatcher.incrementMetric(
+        'repositoryAccountChangedFromContextMenuCount'
+      )
     } catch (e) {
       this.props.dispatcher.postError(e)
     }
@@ -3688,8 +3669,8 @@ export class App extends React.Component<IAppProps, IAppState> {
       onChangeRepositoryAlias: onChangeRepositoryAlias,
       onRemoveRepositoryAlias: onRemoveRepositoryAlias,
       onViewOnGitHub: this.viewOnGitHub,
-      onCreateWorktree: enableWorktreeSupport() ? onCreateWorktree : undefined,
-      onShowWorktrees: enableWorktreeSupport() ? onShowWorktrees : undefined,
+      onCreateWorktree,
+      onShowWorktrees,
       repository: repository,
       shellLabel: this.state.useCustomShell
         ? undefined
@@ -3908,10 +3889,6 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   private renderWorktreeToolbarButton(): JSX.Element | null {
-    if (!enableWorktreeSupport()) {
-      return null
-    }
-
     const selection = this.state.selectedState
 
     if (selection == null || selection.type !== SelectionType.Repository) {
