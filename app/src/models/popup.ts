@@ -36,6 +36,8 @@ export enum PopupType {
   ConfirmDiscardChanges = 'ConfirmDiscardChanges',
   Preferences = 'Preferences',
   RepositorySettings = 'RepositorySettings',
+  RepositoryAccount = 'RepositoryAccount',
+  ConfirmAccountSignOut = 'ConfirmAccountSignOut',
   AddRepository = 'AddRepository',
   CreateRepository = 'CreateRepository',
   CloneRepository = 'CloneRepository',
@@ -111,6 +113,7 @@ export enum PopupType {
   BypassPushProtection = 'BypassPushProtection',
   GenerateCommitMessageOverrideWarning = 'GenerateCommitMessageOverrideWarning',
   GenerateCommitMessageDisclaimer = 'GenerateCommitMessageDisclaimer',
+  AssistedCommitDisclaimer = 'AssistedCommitDisclaimer',
   CopilotConflictResolutionDisclaimer = 'CopilotConflictResolutionDisclaimer',
   HookFailed = 'HookFailed',
   CommitProgress = 'CommitProgress',
@@ -135,6 +138,18 @@ interface IBasePopup {
 }
 
 export type PopupDetail =
+  | {
+      type: PopupType.RepositoryAccount
+      repository: RepositoryWithGitHubRepository
+      accounts?: ReadonlyArray<Account>
+      onComplete: (account: Account | undefined) => void
+    }
+  | {
+      type: PopupType.ConfirmAccountSignOut
+      account: Account
+      repositoryCount: number
+      onComplete: (clearAssignments: boolean | undefined) => void
+    }
   | { type: PopupType.RenameBranch; repository: Repository; branch: Branch }
   | {
       type: PopupType.DeleteBranch
@@ -198,11 +213,7 @@ export type PopupDetail =
       initialName?: string
       targetCommit?: CommitOneLine
     }
-  | {
-      type: PopupType.SignIn
-      isCredentialHelperSignIn?: boolean
-      credentialHelperUrl?: string
-    }
+  | { type: PopupType.SignIn }
   | { type: PopupType.About }
   | { type: PopupType.InstallGit; path: string }
   | { type: PopupType.PublishRepository; repository: Repository }
@@ -412,6 +423,7 @@ export type PopupDetail =
     }
   | {
       type: PopupType.CICheckRunRerun
+      localRepository: Repository
       checkRuns: ReadonlyArray<IRefCheck>
       repository: GitHubRepository
       prRef: string
@@ -450,6 +462,8 @@ export type PopupDetail =
   | {
       type: PopupType.Error
       error: Error
+      /** Include retained causes when explicitly inspecting assisted-run details. */
+      showCauses?: boolean
     }
   | {
       type: PopupType.InstallingUpdate
@@ -515,6 +529,11 @@ export type PopupDetail =
       // from this popup we will trigger the commit message generation too.
       repository: Repository
       filesSelected: ReadonlyArray<WorkingDirectoryFileChange>
+    }
+  | {
+      type: PopupType.AssistedCommitDisclaimer
+      repository: Repository
+      onAccepted: () => void
     }
   | {
       type: PopupType.CopilotConflictResolutionDisclaimer
