@@ -236,6 +236,14 @@ function keyOf(note: ReleaseNoteEntry): string {
  * the finals: a beta change may be held back from the final that follows, as
  * the removal of macOS 12 support was, announced in 3.6.6-beta1, left out of
  * 3.6.6 and only shipped in 3.6.8.
+ *
+ * A final build leaves out the beta entries that name no pull request. Upstream
+ * restates in its final release what its betas brought, often reworded and
+ * numbered by then, and an entry without a number cannot be matched against
+ * that restatement: 3.6.12 never had a final release, its betas became 3.7.0,
+ * and five unnumbered entries of 3.6.12-beta1 came out a second time next to
+ * their numbered rewording in 3.7.0. Unnumbered entries of a final release are
+ * kept, such as the only entry of 3.6.11.
  */
 export function groupUpstreamEntries(
   versions: ReadonlyArray<string>,
@@ -251,6 +259,8 @@ export function groupUpstreamEntries(
   }
 
   const seen = new Set<string>()
+  const finalBuild =
+    previousUpstream !== null && !isPrerelease(previousUpstream)
 
   if (previousUpstream !== null) {
     const betaChannel = isPrerelease(previousUpstream)
@@ -276,6 +286,9 @@ export function groupUpstreamEntries(
     for (const entry of releases[version] ?? []) {
       const parsed = parseEntry(entry)
       if (!parsed) {
+        continue
+      }
+      if (finalBuild && isPrerelease(version) && parsed.note.ids.length === 0) {
         continue
       }
       const key = keyOf(parsed.note)

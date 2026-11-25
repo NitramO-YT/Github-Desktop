@@ -221,6 +221,58 @@ describe('groupUpstreamEntries', () => {
     ])
   })
 
+  describe('beta entries that name no pull request', () => {
+    // 3.6.12 never had a final release: its betas became 3.7.0, whose entries
+    // restate theirs with a number.
+    const reworded = {
+      '3.7.0': [
+        '[Added] Automatically push after a commit - #23135',
+        '[Fixed] Accept local repository paths copied with surrounding quotes - #23108',
+      ],
+      '3.6.12-beta1': [
+        '[Added] Add a "Push after committing" option for manual commits',
+        '[Fixed] Accept local repository paths wrapped in quotes (as copied from Windows Explorer) instead of rejecting them',
+        '[Fixed] Highlighted names and paths in dialogs no longer break in the middle of short words - #23152',
+      ],
+      '3.6.11': ['[Improved] Update Git to 2.56.1'],
+    }
+
+    it('leaves them out of a final build', () => {
+      const groups = groupUpstreamEntries(
+        ['3.7.0', '3.6.12-beta1'],
+        reworded,
+        '3.6.11'
+      )
+      assert.deepEqual(
+        groups.added.map(n => n.ids),
+        [[23135]]
+      )
+      assert.deepEqual(
+        groups.fixed.map(n => n.ids),
+        [[23108], [23152]]
+      )
+    })
+
+    it('keeps them in a beta build', () => {
+      const groups = groupUpstreamEntries(
+        ['3.6.12-beta1'],
+        reworded,
+        '3.6.11-beta1'
+      )
+      assert.deepEqual(
+        groups.added.map(n => n.text),
+        ['Add a "Push after committing" option for manual commits']
+      )
+    })
+
+    it('keeps the unnumbered entries of a final release', () => {
+      const groups = groupUpstreamEntries(['3.6.11'], reworded, '3.6.10')
+      assert.deepEqual(groups.improved, [
+        { text: 'Update Git to 2.56.1', ids: [] },
+      ])
+    })
+  })
+
   it('keeps the whole text when a dash is followed by no number', () => {
     const entry =
       "[Fixed] Mitigates vulnerabilities in Git's credential helper - CVE-2025-23040, CVE-2024-50349"
